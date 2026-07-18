@@ -1,0 +1,22 @@
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Private project documents
+docs/.private/
+
+# Java / Maven
+target/
+*.log
+
+# Frontend
+node_modules/
+dist/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
