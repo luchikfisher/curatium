@@ -140,18 +140,30 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @Override
-    protected ResponseEntity<Object> createResponseEntity(
+    protected ResponseEntity<Object> handleExceptionInternal(
+            Exception exception,
             Object body,
             HttpHeaders headers,
             HttpStatusCode status,
             WebRequest request
     ) {
-        return response(
-                status,
+        if (status.is5xxServerError()) {
+            LOGGER.error("Unexpected Spring MVC failure", exception);
+        }
+
+        ApiErrorResponse errorResponse = new ApiErrorResponse(
                 errorCode(status),
                 errorMessage(status),
                 List.of(),
-                headers
+                Instant.now()
+        );
+
+        return super.handleExceptionInternal(
+                exception,
+                errorResponse,
+                headers,
+                status,
+                request
         );
     }
 
@@ -174,6 +186,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private String errorCode(HttpStatusCode status) {
+        if (status.is5xxServerError()) {
+            return "INTERNAL_ERROR";
+        }
+
         return switch (status.value()) {
             case 400 -> "MALFORMED_REQUEST";
             case 404 -> "NOT_FOUND";
@@ -184,6 +200,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private String errorMessage(HttpStatusCode status) {
+        if (status.is5xxServerError()) {
+            return "An unexpected error occurred.";
+        }
+
         return switch (status.value()) {
             case 400 -> "The request is invalid.";
             case 404 -> "The requested resource was not found.";
