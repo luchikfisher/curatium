@@ -1,3 +1,14 @@
 spring:
   application:
-    name: backend
+    name: curatium-backend
+  profiles:
+    default: local
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+
+curatium:
+  frontend-origin: ${CURATIUM_FRONTEND_ORIGIN:http://localhost:5173}
