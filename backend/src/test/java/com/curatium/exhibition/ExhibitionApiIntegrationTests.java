@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -140,6 +141,10 @@ class ExhibitionApiIntegrationTests {
 
     @Test
     void preservesFrameworkRequestStatuses() throws Exception {
+        mockMvc.perform(get("/api/not-implemented"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
         mockMvc.perform(get("/api/exhibitions/not-a-number"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("MALFORMED_REQUEST"))
@@ -147,7 +152,8 @@ class ExhibitionApiIntegrationTests {
 
         mockMvc.perform(patch("/api/exhibitions"))
                 .andExpect(status().isMethodNotAllowed())
-                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
+                .andExpect(header().exists(HttpHeaders.ALLOW));
 
         mockMvc.perform(post("/api/exhibitions")
                         .contentType(MediaType.TEXT_PLAIN)

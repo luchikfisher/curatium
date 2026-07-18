@@ -7,85 +7,241 @@ import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
-import org.springframework.web.HttpMediaTypeNotSupportedException;
-import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @RestControllerAdvice
-public class ApiExceptionHandler {
+public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(ApiExceptionHandler.class);
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiErrorResponse> handleValidation(MethodArgumentNotValidException exception) {
-        List<ApiFieldError> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException exception,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request
+    ) {
+        List<ApiFieldError> fieldErrors = exception.getBindingResult()
+                .getFieldErrors()
+                .stream()
                 .map(this::toFieldError)
                 .toList();
-        return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The request contains invalid values.", fieldErrors);
+
+        return response(
+                status,
+                "VALIDATION_ERROR",
+                "The request contains invalid values.",
+                fieldErrors,
+                headers
+        );
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException exception,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request
+    ) {
+        return response(
+                status,
+                "MALFORMED_REQUEST",
+                "The request body could not be read.",
+                List.of(),
+                headers
+        );
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(
+            TypeMismatchException exception,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request
+    ) {
+        ApiFieldError fieldError = new ApiFieldError(
+                fieldName(exception),
+                "Invalid value."
+        );
+
+        return response(
+                status,
+                "MALFORMED_REQUEST",
+                "The request contains an invalid value.",
+                List.of(fieldError),
+                headers
+        );
     }
 
     @ExceptionHandler(InvalidExhibitionRequestException.class)
-    public ResponseEntity<ApiErrorResponse> handleInvalidExhibitionRequest(InvalidExhibitionRequestException exception) {
-        ApiFieldError fieldError = new ApiFieldError(exception.getField(), exception.getMessage());
-        return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The request contains invalid values.", List.of(fieldError));
-    }
+    public ResponseEntity<Object> handleInvalidExhibitionRequest(
+            InvalidExhibitionRequestException exception
+    ) {
+        ApiFieldError fieldError = new ApiFieldError(
+                exception.getField(),
+                exception.getMessage()
+        );
 
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiErrorResponse> handleUnreadableRequest() {
-        return response(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "The request body could not be read.", List.of());
-    }
-
-    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
-        ApiFieldError fieldError = new ApiFieldError(exception.getName(), "Invalid value.");
-        return response(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "The request contains an invalid value.", List.of(fieldError));
-    }
-
-    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiErrorResponse> handleUnsupportedMethod() {
-        return response(HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED", "The HTTP method is not supported.", List.of());
-    }
-
-    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    public ResponseEntity<ApiErrorResponse> handleUnsupportedMediaType() {
-        return response(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_MEDIA_TYPE", "The content type is not supported.", List.of());
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "The request contains invalid values.",
+                List.of(fieldError)
+        );
     }
 
     @ExceptionHandler(ExhibitionNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse> handleExhibitionNotFound(ExhibitionNotFoundException exception) {
-        return response(HttpStatus.NOT_FOUND, "EXHIBITION_NOT_FOUND", exception.getMessage(), List.of());
+    public ResponseEntity<Object> handleExhibitionNotFound(
+            ExhibitionNotFoundException exception
+    ) {
+        return response(
+                HttpStatus.NOT_FOUND,
+                "EXHIBITION_NOT_FOUND",
+                exception.getMessage(),
+                List.of()
+        );
     }
 
     @ExceptionHandler(ExhibitionNotEditableException.class)
-    public ResponseEntity<ApiErrorResponse> handleExhibitionNotEditable(ExhibitionNotEditableException exception) {
-        return response(HttpStatus.CONFLICT, "PUBLISHED_EXHIBITION_READ_ONLY", exception.getMessage(), List.of());
+    public ResponseEntity<Object> handleExhibitionNotEditable(
+            ExhibitionNotEditableException exception
+    ) {
+        return response(
+                HttpStatus.CONFLICT,
+                "PUBLISHED_EXHIBITION_READ_ONLY",
+                exception.getMessage(),
+                List.of()
+        );
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception) {
+    public ResponseEntity<Object> handleUnexpected(Exception exception) {
         LOGGER.error("Unexpected request failure", exception);
-        return response(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred.", List.of());
+
+        return response(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "An unexpected error occurred.",
+                List.of()
+        );
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(
+            Exception exception,
+            Object body,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request
+    ) {
+        if (status.is5xxServerError()) {
+            LOGGER.error("Unexpected Spring MVC failure", exception);
+        }
+
+        ApiErrorResponse errorResponse = new ApiErrorResponse(
+                errorCode(status),
+                errorMessage(status),
+                List.of(),
+                Instant.now()
+        );
+
+        return super.handleExceptionInternal(
+                exception,
+                errorResponse,
+                headers,
+                status,
+                request
+        );
     }
 
     private ApiFieldError toFieldError(FieldError error) {
-        String message = error.getDefaultMessage() == null ? "Invalid value." : error.getDefaultMessage();
+        String message = error.getDefaultMessage() == null
+                ? "Invalid value."
+                : error.getDefaultMessage();
+
         return new ApiFieldError(error.getField(), message);
     }
 
-    private ResponseEntity<ApiErrorResponse> response(
-            HttpStatus status,
+    private String fieldName(TypeMismatchException exception) {
+        if (exception instanceof MethodArgumentTypeMismatchException argumentException) {
+            return argumentException.getName();
+        }
+
+        return exception.getPropertyName() == null
+                ? "request"
+                : exception.getPropertyName();
+    }
+
+    private String errorCode(HttpStatusCode status) {
+        if (status.is5xxServerError()) {
+            return "INTERNAL_ERROR";
+        }
+
+        return switch (status.value()) {
+            case 400 -> "MALFORMED_REQUEST";
+            case 404 -> "NOT_FOUND";
+            case 405 -> "METHOD_NOT_ALLOWED";
+            case 415 -> "UNSUPPORTED_MEDIA_TYPE";
+            default -> "HTTP_" + status.value();
+        };
+    }
+
+    private String errorMessage(HttpStatusCode status) {
+        if (status.is5xxServerError()) {
+            return "An unexpected error occurred.";
+        }
+
+        return switch (status.value()) {
+            case 400 -> "The request is invalid.";
+            case 404 -> "The requested resource was not found.";
+            case 405 -> "The HTTP method is not supported.";
+            case 415 -> "The content type is not supported.";
+            default -> "The request could not be processed.";
+        };
+    }
+
+    private ResponseEntity<Object> response(
+            HttpStatusCode status,
             String code,
             String message,
             List<ApiFieldError> fieldErrors
     ) {
-        ApiErrorResponse body = new ApiErrorResponse(code, message, fieldErrors, Instant.now());
-        return ResponseEntity.status(status).body(body);
+        return response(
+                status,
+                code,
+                message,
+                fieldErrors,
+                HttpHeaders.EMPTY
+        );
+    }
+
+    private ResponseEntity<Object> response(
+            HttpStatusCode status,
+            String code,
+            String message,
+            List<ApiFieldError> fieldErrors,
+            HttpHeaders headers
+    ) {
+        ApiErrorResponse body = new ApiErrorResponse(
+                code,
+                message,
+                fieldErrors,
+                Instant.now()
+        );
+
+        return new ResponseEntity<>(body, headers, status);
     }
 }
