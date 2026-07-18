@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: ${CURATIUM_DATABASE_URL:jdbc:postgresql://localhost:5432/curatium}
+    username: ${CURATIUM_DATABASE_USERNAME:curatium}
+    password: ${CURATIUM_DATABASE_PASSWORD:curatium}
