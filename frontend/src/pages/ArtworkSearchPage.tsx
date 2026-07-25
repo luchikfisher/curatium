@@ -4,10 +4,12 @@ import { isFrontendError, type FrontendError } from '../api/errors'
 import { EmptyState, LoadingState } from '../components/AsyncState'
 import {
   addExhibitionArtwork,
+  clearExhibitionCover,
   getExhibition,
   moveExhibitionItem,
   removeExhibitionItem,
   searchMuseumArtworks,
+  selectExhibitionCover,
   updateExhibitionItemNote,
 } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
@@ -22,6 +24,10 @@ const SEARCH_PAGE_SIZE = 20
 const MAXIMUM_CURATORIAL_NOTE_LENGTH = 2000
 
 type ItemMutationKind = 'note' | 'move-up' | 'move-down' | 'remove'
+
+type CoverMutation =
+  | { kind: 'select'; itemId: number }
+  | { kind: 'clear' }
 
 interface ItemMutation {
   itemId: number
@@ -53,11 +59,15 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [itemError, setItemError] = useState('')
   const [itemSuccess, setItemSuccess] = useState('')
   const [itemMutation, setItemMutation] = useState<ItemMutation | null>(null)
+  const [coverMutation, setCoverMutation] = useState<CoverMutation | null>(null)
+  const [coverError, setCoverError] = useState('')
+  const [coverSuccess, setCoverSuccess] = useState('')
   const [removingItemId, setRemovingItemId] = useState<number | null>(null)
   const [exhibitionNotFound, setExhibitionNotFound] = useState(false)
   const searchController = useRef<AbortController | null>(null)
   const addController = useRef<AbortController | null>(null)
   const itemMutationController = useRef<AbortController | null>(null)
+  const coverMutationController = useRef<AbortController | null>(null)
   const searchRequest = useRef(0)
   const lastSearch = useRef<{ query: string; page: number } | null>(null)
   const confirmRemovalButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -68,6 +78,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     searchController.current?.abort()
     addController.current?.abort()
     itemMutationController.current?.abort()
+    coverMutationController.current?.abort()
   }, [])
   useEffect(() => {
     if (removingItemId !== null) {
@@ -101,7 +112,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const isReadOnly = readOnly || currentExhibition.status === 'PUBLISHED'
   const atCapacity = capacityReached || currentExhibition.items.length >= 10
   const itemMutationInProgress = itemMutation !== null
+  const coverMutationInProgress = coverMutation !== null
   const committedArtworkKeys = new Set(currentExhibition.items.map((item) => artworkKey(item.artwork)))
+  const coverItem = currentExhibition.coverArtworkId === null
+    ? null
+    : currentExhibition.items.find((item) => item.artwork.id === currentExhibition.coverArtworkId) ?? null
 
   function changeQuery(value: string) {
     setQuery(value)
@@ -163,7 +178,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   async function addArtwork(artwork: MuseumArtworkSearchResult) {
     const key = artworkKey(artwork)
-    if (isReadOnly || atCapacity || itemMutationInProgress || addingExternalId !== null || committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)) {
+    if (isReadOnly || atCapacity || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null || committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)) {
       return
     }
     const controller = new AbortController()
@@ -240,6 +255,80 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setAddError('An unexpected problem occurred while adding the artwork. Please try again.')
   }
 
+  function beginCoverMutation(mutation: CoverMutation): AbortController | null {
+    if (isReadOnly || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null) return null
+    const controller = new AbortController()
+    coverMutationController.current = controller
+    setCoverMutation(mutation)
+    setCoverError('')
+    setCoverSuccess('')
+    return controller
+  }
+
+  function isCurrentCoverMutation(controller: AbortController) {
+    return !controller.signal.aborted && coverMutationController.current === controller
+  }
+
+  function handleCoverMutationError(reason: unknown) {
+    const error = reason instanceof Error ? reason : new Error('Unknown error')
+    if (isFrontendError(error)) {
+      if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
+        setReadOnly(true)
+        return
+      }
+      if (error.code === 'EXHIBITION_NOT_FOUND') {
+        setExhibitionNotFound(true)
+        return
+      }
+      if (error.code === 'INVALID_COVER_ARTWORK') {
+        setCoverError(error.message)
+        return
+      }
+      setCoverError(error.message)
+      return
+    }
+    setCoverError('An unexpected problem occurred while updating the cover. Please try again.')
+  }
+
+  async function selectCover(item: ExhibitionItem) {
+    const controller = beginCoverMutation({ kind: 'select', itemId: item.id })
+    if (!controller) return
+    try {
+      const updatedExhibition = await selectExhibitionCover(
+        currentExhibition.id,
+        item.artwork.id,
+        controller.signal,
+      )
+      if (isCurrentCoverMutation(controller)) {
+        replace(updatedExhibition)
+        setCoverSuccess('Cover updated.')
+      }
+    } catch (reason) {
+      if (isCurrentCoverMutation(controller)) handleCoverMutationError(reason)
+    } finally {
+      if (isCurrentCoverMutation(controller)) setCoverMutation(null)
+    }
+  }
+
+  async function clearCover() {
+    const controller = beginCoverMutation({ kind: 'clear' })
+    if (!controller) return
+    try {
+      const updatedExhibition = await clearExhibitionCover(
+        currentExhibition.id,
+        controller.signal,
+      )
+      if (isCurrentCoverMutation(controller)) {
+        replace(updatedExhibition)
+        setCoverSuccess('Cover cleared.')
+      }
+    } catch (reason) {
+      if (isCurrentCoverMutation(controller)) handleCoverMutationError(reason)
+    } finally {
+      if (isCurrentCoverMutation(controller)) setCoverMutation(null)
+    }
+  }
+
   function noteValue(item: ExhibitionItem): string {
     return noteDrafts[item.id] ?? item.curatorialNote ?? ''
   }
@@ -252,7 +341,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   function beginItemMutation(itemId: number, kind: ItemMutationKind): AbortController | null {
-    if (isReadOnly || itemMutationInProgress || addingExternalId !== null) return null
+    if (isReadOnly || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return null
     const controller = new AbortController()
     itemMutationController.current = controller
     setItemMutation({ itemId, kind })
@@ -358,7 +447,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   function requestRemoval(itemId: number) {
-    if (isReadOnly || itemMutationInProgress || addingExternalId !== null) return
+    if (isReadOnly || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return
     setItemError('')
     setItemSuccess('')
     setRemovingItemId(itemId)
@@ -415,6 +504,35 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/edit`}>Back to exhibition</Link>
         <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/preview`}>Preview exhibition</Link>
       </nav>
+      <section className="artwork-search-section cover-selection" aria-labelledby="cover-heading">
+        <h2 id="cover-heading">Cover artwork</h2>
+        {coverItem ? (
+          <div className="cover-selection__current">
+            {coverItem.artwork.thumbnailUrl ? (
+              <img src={coverItem.artwork.thumbnailUrl} alt={`Current cover: ${coverItem.artwork.title}`} />
+            ) : (
+              <div className="current-artwork-item__image-placeholder" role="img" aria-label={`No thumbnail available for the current cover, ${coverItem.artwork.title}`} />
+            )}
+            <div>
+              <p className="cover-selection__status" role="status">Current cover</p>
+              <p>{coverItem.artwork.title}</p>
+              <button
+                aria-label={`Clear cover, artwork ${coverItem.position} of ${currentExhibition.items.length}, ${coverItem.artwork.title}`}
+                className="button button-secondary"
+                type="button"
+                disabled={isReadOnly || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null}
+                onClick={clearCover}
+              >
+                {coverMutation?.kind === 'clear' ? 'Clearing…' : 'Clear cover'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="section-copy">No cover selected. Choose an artwork below to use as the exhibition cover.</p>
+        )}
+        {coverError && <p className="form-alert" role="alert">{coverError}</p>}
+        {coverSuccess && <p className="form-success" role="status">{coverSuccess}</p>}
+      </section>
       <section className="artwork-search-section" aria-labelledby="current-artworks-heading">
         <h2 id="current-artworks-heading">Current artworks ({currentExhibition.items.length}/10)</h2>
         {isReadOnly && <p className="form-alert" role="status">This exhibition is published and read-only.</p>}
@@ -433,6 +551,9 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                 noteError={noteErrors[item.id]}
                 isReadOnly={isReadOnly}
                 isBusy={itemMutationInProgress}
+                coverMutation={coverMutation}
+                hasCurrentCover={coverItem !== null}
+                isCurrentCover={item.artwork.id === currentExhibition.coverArtworkId}
                 activeMutationKind={
                   itemMutation?.itemId === item.id ? itemMutation.kind : null
                 }
@@ -440,6 +561,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                 onNoteChange={changeNote}
                 onSaveNote={saveNote}
                 onMove={moveItem}
+                onSelectCover={selectCover}
                 onRequestRemoval={requestRemoval}
                 onRemove={removeItem}
                 onCancelRemoval={cancelRemoval}
@@ -486,6 +608,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           atCapacity={atCapacity}
           addingExternalId={addingExternalId}
           itemMutationInProgress={itemMutationInProgress}
+          coverMutationInProgress={coverMutationInProgress}
           isAlreadyAdded={(artwork) => {
             const key = artworkKey(artwork)
             return committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)
@@ -503,11 +626,15 @@ function CurrentArtworkItem({
   noteError,
   isReadOnly,
   isBusy,
+  coverMutation,
+  hasCurrentCover,
+  isCurrentCover,
   activeMutationKind,
   isConfirmingRemoval,
   onNoteChange,
   onSaveNote,
   onMove,
+  onSelectCover,
   onRequestRemoval,
   onRemove,
   onCancelRemoval,
@@ -520,11 +647,15 @@ function CurrentArtworkItem({
   noteError?: string
   isReadOnly: boolean
   isBusy: boolean
+  coverMutation: CoverMutation | null
+  hasCurrentCover: boolean
+  isCurrentCover: boolean
   activeMutationKind: ItemMutationKind | null
   isConfirmingRemoval: boolean
   onNoteChange: (itemId: number, value: string) => void
   onSaveNote: (item: ExhibitionItem, value?: string) => void
   onMove: (item: ExhibitionItem, direction: 'up' | 'down') => void
+  onSelectCover: (item: ExhibitionItem) => void
   onRequestRemoval: (itemId: number) => void
   onRemove: (item: ExhibitionItem) => void
   onCancelRemoval: () => void
@@ -533,13 +664,14 @@ function CurrentArtworkItem({
 }) {
   const noteId = `curatorial-note-${item.id}`
   const noteErrorId = `${noteId}-error`
-  const disabled = isReadOnly || isBusy
+  const disabled = isReadOnly || isBusy || coverMutation !== null
   const isSaving = activeMutationKind === 'note'
   const isMovingUp = activeMutationKind === 'move-up'
   const isMovingDown = activeMutationKind === 'move-down'
   const isRemoving = activeMutationKind === 'remove'
   const canClearNote = note.length > 0 || item.curatorialNote !== null
   const artworkDescriptor = `artwork ${item.position} of ${itemCount}, ${item.artwork.title}`
+  const isSettingCover = coverMutation?.kind === 'select' && coverMutation.itemId === item.id
 
   function submitNote(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -583,6 +715,23 @@ function CurrentArtworkItem({
           </div>
         </form>
         <div className="current-artwork-item__actions">
+          {isCurrentCover ? (
+            <p className="current-artwork-item__cover" role="status">Current cover</p>
+          ) : (
+            <button
+              aria-label={isSettingCover
+                ? `Setting cover to ${artworkDescriptor}`
+                : hasCurrentCover
+                  ? `Replace cover with ${artworkDescriptor}`
+                  : `Set ${artworkDescriptor} as cover`}
+              className="button button-secondary"
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelectCover(item)}
+            >
+              {isSettingCover ? 'Setting cover…' : hasCurrentCover ? 'Replace cover' : 'Set as cover'}
+            </button>
+          )}
           <button aria-label={isMovingUp ? `Moving ${artworkDescriptor} up` : `Move ${artworkDescriptor} up`} className="button button-secondary" type="button" disabled={disabled || item.position === 1} onClick={() => onMove(item, 'up')}>
             {isMovingUp ? 'Moving…' : 'Move up'}
           </button>
@@ -620,6 +769,7 @@ function SearchContent({
   atCapacity,
   addingExternalId,
   itemMutationInProgress,
+  coverMutationInProgress,
   isAlreadyAdded,
 }: {
   results: MuseumArtworkSearchPage | null
@@ -631,6 +781,7 @@ function SearchContent({
   atCapacity: boolean
   addingExternalId: string | null
   itemMutationInProgress: boolean
+  coverMutationInProgress: boolean
   isAlreadyAdded: (artwork: MuseumArtworkSearchResult) => boolean
 }) {
   if (searching && !results) return <LoadingState label="Searching the museum collection…" />
@@ -657,7 +808,7 @@ function SearchContent({
       <div className="museum-results__grid">
         {results.items.map((artwork) => {
           const alreadyAdded = isAlreadyAdded(artwork)
-          const disabled = alreadyAdded || isReadOnly || atCapacity || addingExternalId !== null || itemMutationInProgress
+          const disabled = alreadyAdded || isReadOnly || atCapacity || addingExternalId !== null || itemMutationInProgress || coverMutationInProgress
           return (
             <article className="museum-artwork-card" key={artworkKey(artwork)}>
               {artwork.thumbnailUrl ? (
