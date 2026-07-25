@@ -85,10 +85,30 @@ public class Exhibition {
         return status == ExhibitionStatus.DRAFT;
     }
 
+    public boolean isPublished() {
+        return status == ExhibitionStatus.PUBLISHED;
+    }
+
+    public void selectCoverArtwork(Artwork artwork) {
+        this.coverArtwork = artwork;
+    }
+
+    public void clearCoverArtwork() {
+        this.coverArtwork = null;
+    }
+
     public void clearCoverArtworkIfMatches(Artwork artwork) {
         if (coverArtwork != null && coverArtwork.getId().equals(artwork.getId())) {
-            coverArtwork = null;
+            clearCoverArtwork();
         }
+    }
+
+    public void publish() {
+        this.status = ExhibitionStatus.PUBLISHED;
+    }
+
+    public void unpublish() {
+        this.status = ExhibitionStatus.DRAFT;
     }
 
     public List<ExhibitionItem> getItems() {

@@ -1,6 +1,7 @@
 package com.curatium.exhibition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -719,6 +720,440 @@ class ExhibitionApiIntegrationTests {
             startGate.countDown();
             callers.shutdownNow();
         }
+    }
+
+    @Test
+    void selectsReplacesAndClearsDraftCovers() throws Exception {
+        long exhibitionId = insertExhibition("Cover selection");
+        long firstArtworkId = insertArtwork("cover-first");
+        long secondArtworkId = insertArtwork("cover-second");
+        long secondExhibitionId = insertExhibition("Other exhibition");
+        long otherExhibitionArtworkId = insertArtwork("cover-other-exhibition");
+        long firstItemId = insertExhibitionItem(exhibitionId, firstArtworkId, 1);
+        long secondItemId = insertExhibitionItem(exhibitionId, secondArtworkId, 2);
+        long otherExhibitionItemId = insertExhibitionItem(secondExhibitionId, otherExhibitionArtworkId, 1);
+
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artworkId\":%d}".formatted(firstArtworkId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.coverArtworkId").value(firstArtworkId));
+        assertEquals(firstArtworkId, jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, exhibitionId
+        ));
+
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artworkId\":%d}".formatted(secondArtworkId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.coverArtworkId").value(secondArtworkId));
+
+        mockMvc.perform(get("/api/exhibitions/{exhibitionId}", exhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.coverArtworkId").value(secondArtworkId));
+
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artworkId\":%d}".formatted(otherExhibitionArtworkId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_COVER_ARTWORK"));
+        assertEquals(secondArtworkId, jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, exhibitionId
+        ));
+        assertNull(jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, secondExhibitionId
+        ));
+        assertItemIdsInOrder(exhibitionId, firstItemId, secondItemId);
+        assertEquals(otherExhibitionItemId, jdbcTemplate.queryForObject(
+                "SELECT id FROM exhibition_items WHERE exhibition_id = ?", Long.class, secondExhibitionId
+        ));
+
+        mockMvc.perform(delete("/api/exhibitions/{exhibitionId}/cover", exhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.coverArtworkId").doesNotExist());
+        assertNull(jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, exhibitionId
+        ));
+
+        jdbcTemplate.update("UPDATE exhibitions SET status = 'PUBLISHED' WHERE id = ?", exhibitionId);
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artworkId\":%d}".formatted(firstArtworkId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PUBLISHED_EXHIBITION_READ_ONLY"));
+        mockMvc.perform(delete("/api/exhibitions/{exhibitionId}/cover", exhibitionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PUBLISHED_EXHIBITION_READ_ONLY"));
+    }
+
+    @Test
+    void validatesCoverRequest() throws Exception {
+        long exhibitionId = insertExhibition("Cover validation");
+
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("artworkId"));
+    }
+
+    @Test
+    void publishesOnlyWhenPublicationPrerequisitesAreMet() throws Exception {
+        long emptyExhibitionId = insertExhibition("Empty publication");
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", emptyExhibitionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+
+        long noCoverExhibitionId = insertExhibition("No cover publication");
+        long noCoverArtworkId = insertArtwork("no-cover");
+        insertExhibitionItem(noCoverExhibitionId, noCoverArtworkId, 1);
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", noCoverExhibitionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+
+        long invalidCoverExhibitionId = insertExhibition("Invalid cover publication");
+        long memberArtworkId = insertArtwork("publication-member");
+        long unrelatedArtworkId = insertArtwork("publication-unrelated");
+        insertExhibitionItem(invalidCoverExhibitionId, memberArtworkId, 1);
+        jdbcTemplate.update(
+                "UPDATE exhibitions SET cover_artwork_id = ? WHERE id = ?",
+                unrelatedArtworkId,
+                invalidCoverExhibitionId
+        );
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", invalidCoverExhibitionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+
+        long exhibitionId = insertExhibition("Ready to publish");
+        long artworkId = insertArtwork("publish-cover");
+        insertExhibitionItem(exhibitionId, artworkId, 1);
+        jdbcTemplate.update("UPDATE exhibitions SET cover_artwork_id = ? WHERE id = ?", artworkId, exhibitionId);
+        String previousUpdatedAt = jdbcTemplate.queryForObject(
+                "SELECT updated_at::text FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        );
+
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", exhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PUBLISHED"))
+                .andExpect(jsonPath("$.coverArtworkId").value(artworkId));
+        assertEquals("PUBLISHED", jdbcTemplate.queryForObject(
+                "SELECT status FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        ));
+        assertNotEquals(previousUpdatedAt, jdbcTemplate.queryForObject(
+                "SELECT updated_at::text FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        ));
+
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", exhibitionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+    }
+
+    @Test
+    void unpublishesPreservesStateAndRestoresEditing() throws Exception {
+        JsonNode createdExhibition = createExhibition(
+                "Return to draft",
+                "A preserved summary",
+                "A preserved introduction"
+        );
+        long exhibitionId = createdExhibition.get("id").asLong();
+        long firstArtworkId = insertArtwork("unpublish-first");
+        long secondArtworkId = insertArtwork("unpublish-second");
+        long firstItemId = insertExhibitionItem(exhibitionId, firstArtworkId, 1);
+        long secondItemId = insertExhibitionItem(exhibitionId, secondArtworkId, 2);
+        jdbcTemplate.update(
+                "UPDATE exhibition_items SET curatorial_note = ? WHERE id = ?", "First note", firstItemId
+        );
+        jdbcTemplate.update(
+                "UPDATE exhibition_items SET curatorial_note = ? WHERE id = ?", "Second note", secondItemId
+        );
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"artworkId\":%d}".formatted(secondArtworkId)))
+                .andExpect(status().isOk());
+        JsonNode publishedExhibition = readResponse(mockMvc.perform(
+                        post("/api/exhibitions/{exhibitionId}/publish", exhibitionId)
+                )
+                .andExpect(status().isOk())
+                .andReturn());
+
+        JsonNode unpublishedExhibition = readResponse(mockMvc.perform(
+                        post("/api/exhibitions/{exhibitionId}/unpublish", exhibitionId)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andReturn());
+        assertNotEquals(
+                publishedExhibition.get("updatedAt").asString(),
+                unpublishedExhibition.get("updatedAt").asString()
+        );
+
+        JsonNode persistedExhibition = readResponse(mockMvc.perform(get("/api/exhibitions/{exhibitionId}", exhibitionId))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertEquals("DRAFT", persistedExhibition.get("status").asString());
+        assertEquals("Return to draft", persistedExhibition.get("title").asString());
+        assertEquals("A preserved summary", persistedExhibition.get("summary").asString());
+        assertEquals("A preserved introduction", persistedExhibition.get("introduction").asString());
+        assertEquals(secondArtworkId, persistedExhibition.get("coverArtworkId").asLong());
+        assertEquals(unpublishedExhibition.get("updatedAt").asString(), persistedExhibition.get("updatedAt").asString());
+        assertItemIdsInOrder(exhibitionId, firstItemId, secondItemId);
+        assertExhibitionItemState(
+                exhibitionId,
+                List.of(firstItemId, secondItemId),
+                List.of("First note", "Second note")
+        );
+        assertEquals(
+                List.of("unpublish-first", "unpublish-second"),
+                jdbcTemplate.queryForList(
+                        "SELECT external_id FROM artworks WHERE id IN (?, ?) ORDER BY id",
+                        String.class,
+                        firstArtworkId,
+                        secondArtworkId
+                )
+        );
+        assertEquals(
+                List.of("https://example.test/image.jpg", "https://example.test/image.jpg"),
+                jdbcTemplate.queryForList(
+                        "SELECT image_url FROM artworks WHERE id IN (?, ?) ORDER BY id",
+                        String.class,
+                        firstArtworkId,
+                        secondArtworkId
+                )
+        );
+
+        mockMvc.perform(put("/api/exhibitions/{exhibitionId}", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title":"Editable again",
+                                  "summary":"A preserved summary",
+                                  "introduction":"A preserved introduction"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Editable again"));
+
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/unpublish", exhibitionId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+    }
+
+    @Test
+    void servesOnlyPublishedExhibitionsFromLocalSnapshots() throws Exception {
+        long draftExhibitionId = insertExhibition("Draft exhibition");
+        long publishedExhibitionId = insertExhibition("Published exhibition");
+        long firstArtworkId = insertArtwork("public-first");
+        long secondArtworkId = insertArtwork("public-second");
+        long firstItemId = insertExhibitionItem(publishedExhibitionId, firstArtworkId, 1);
+        long secondItemId = insertExhibitionItem(publishedExhibitionId, secondArtworkId, 2);
+        jdbcTemplate.update(
+                "UPDATE exhibition_items SET curatorial_note = ? WHERE id = ?", "First public note", firstItemId
+        );
+        jdbcTemplate.update(
+                "UPDATE exhibitions SET summary = ?, introduction = ?, cover_artwork_id = ?, status = 'PUBLISHED' WHERE id = ?",
+                "Published summary", "Published introduction", secondArtworkId, publishedExhibitionId
+        );
+        DETAIL_STATUS.set(503);
+
+        JsonNode catalogue = readResponse(mockMvc.perform(get("/api/public/exhibitions"))
+                .andExpect(status().isOk())
+                .andReturn());
+        assertEquals(1, catalogue.size());
+        assertEquals(publishedExhibitionId, catalogue.get(0).get("id").asLong());
+        assertFalse(catalogue.toString().contains("\"id\":" + draftExhibitionId));
+
+        mockMvc.perform(get("/api/public/exhibitions/{exhibitionId}", publishedExhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Published exhibition"))
+                .andExpect(jsonPath("$.summary").value("Published summary"))
+                .andExpect(jsonPath("$.introduction").value("Published introduction"))
+                .andExpect(jsonPath("$.coverArtworkId").value(secondArtworkId))
+                .andExpect(jsonPath("$.items[0].id").value(firstItemId))
+                .andExpect(jsonPath("$.items[0].position").value(1))
+                .andExpect(jsonPath("$.items[0].curatorialNote").value("First public note"))
+                .andExpect(jsonPath("$.items[0].artwork.title").value("Example artwork"))
+                .andExpect(jsonPath("$.items[0].artwork.imageUrl").value("https://example.test/image.jpg"))
+                .andExpect(jsonPath("$.items[1].id").value(secondItemId));
+        assertEquals(0, DETAIL_REQUESTS.get());
+
+        mockMvc.perform(get("/api/public/exhibitions/{exhibitionId}", draftExhibitionId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("EXHIBITION_NOT_FOUND"));
+    }
+
+    @Test
+    void serializesCoverSelectionAndCoverItemRemoval() throws Exception {
+        long exhibitionId = insertExhibition("Cover concurrency");
+        long artworkId = insertArtwork("cover-concurrency");
+        long itemId = insertExhibitionItem(exhibitionId, artworkId, 1);
+
+        AtomicInteger lockLookups = new AtomicInteger();
+        CountDownLatch coverLockAcquired = new CountDownLatch(1);
+        CountDownLatch removalLockLookupStarted = new CountDownLatch(1);
+        CountDownLatch releaseCoverSelection = new CountDownLatch(1);
+        pauseFirstLockedLookup(exhibitionId, lockLookups, coverLockAcquired, removalLockLookupStarted, releaseCoverSelection);
+
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            Future<MvcResult> selectCover = callers.submit(() -> mockMvc.perform(
+                            put("/api/exhibitions/{exhibitionId}/cover", exhibitionId)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"artworkId\":%d}".formatted(artworkId))
+                    ).andReturn());
+            assertTrue(coverLockAcquired.await(5, TimeUnit.SECONDS));
+
+            Future<MvcResult> removeItem = callers.submit(() -> mockMvc.perform(
+                            delete("/api/exhibitions/{exhibitionId}/items/{itemId}", exhibitionId, itemId)
+                    ).andReturn());
+            assertTrue(removalLockLookupStarted.await(5, TimeUnit.SECONDS));
+            releaseCoverSelection.countDown();
+
+            assertEquals(200, selectCover.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(204, removeItem.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+        } finally {
+            releaseCoverSelection.countDown();
+            callers.shutdownNow();
+            reset(exhibitionRepository);
+        }
+
+        assertNull(jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, exhibitionId
+        ));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM exhibition_items WHERE id = ?", Integer.class, itemId
+        ));
+    }
+
+    @Test
+    void serializesPublicationBeforeAConcurrentMetadataMutation() throws Exception {
+        long exhibitionId = insertExhibition("Publication concurrency");
+        long artworkId = insertArtwork("publication-concurrency");
+        insertExhibitionItem(exhibitionId, artworkId, 1);
+        jdbcTemplate.update("UPDATE exhibitions SET cover_artwork_id = ? WHERE id = ?", artworkId, exhibitionId);
+
+        AtomicInteger lockLookups = new AtomicInteger();
+        CountDownLatch publicationLockAcquired = new CountDownLatch(1);
+        CountDownLatch updateLockLookupStarted = new CountDownLatch(1);
+        CountDownLatch releasePublication = new CountDownLatch(1);
+        pauseFirstLockedLookup(
+                exhibitionId,
+                lockLookups,
+                publicationLockAcquired,
+                updateLockLookupStarted,
+                releasePublication
+        );
+
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            Future<MvcResult> publish = callers.submit(() -> mockMvc.perform(
+                            post("/api/exhibitions/{exhibitionId}/publish", exhibitionId)
+                    ).andReturn());
+            assertTrue(publicationLockAcquired.await(5, TimeUnit.SECONDS));
+
+            Future<MvcResult> update = callers.submit(() -> mockMvc.perform(
+                            put("/api/exhibitions/{exhibitionId}", exhibitionId)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"title\":\"Should not persist\"}")
+                    ).andReturn());
+            assertTrue(updateLockLookupStarted.await(5, TimeUnit.SECONDS));
+            releasePublication.countDown();
+
+            assertEquals(200, publish.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(409, update.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+        } finally {
+            releasePublication.countDown();
+            callers.shutdownNow();
+            reset(exhibitionRepository);
+        }
+
+        assertEquals("PUBLISHED", jdbcTemplate.queryForObject(
+                "SELECT status FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        ));
+        assertEquals("Publication concurrency", jdbcTemplate.queryForObject(
+                "SELECT title FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        ));
+    }
+
+    @Test
+    void serializesDraftDeletionAfterAConcurrentMetadataUpdate() throws Exception {
+        long exhibitionId = insertExhibition("Deletion concurrency");
+        long artworkId = insertArtwork("deletion-concurrency");
+        insertExhibitionItem(exhibitionId, artworkId, 1);
+
+        AtomicInteger lockLookups = new AtomicInteger();
+        CountDownLatch updateLockAcquired = new CountDownLatch(1);
+        CountDownLatch deletionLockLookupStarted = new CountDownLatch(1);
+        CountDownLatch releaseUpdate = new CountDownLatch(1);
+        pauseFirstLockedLookup(
+                exhibitionId,
+                lockLookups,
+                updateLockAcquired,
+                deletionLockLookupStarted,
+                releaseUpdate
+        );
+
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            Future<MvcResult> update = callers.submit(() -> mockMvc.perform(
+                            put("/api/exhibitions/{exhibitionId}", exhibitionId)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"title\":\"Updated before deletion\"}")
+                    ).andReturn());
+            assertTrue(updateLockAcquired.await(5, TimeUnit.SECONDS));
+
+            Future<MvcResult> delete = callers.submit(() -> mockMvc.perform(
+                            delete("/api/exhibitions/{exhibitionId}", exhibitionId)
+                    ).andReturn());
+            assertTrue(deletionLockLookupStarted.await(5, TimeUnit.SECONDS));
+            releaseUpdate.countDown();
+
+            assertEquals(200, update.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(204, delete.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+        } finally {
+            releaseUpdate.countDown();
+            callers.shutdownNow();
+            reset(exhibitionRepository);
+        }
+
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM exhibitions WHERE id = ?", Integer.class, exhibitionId
+        ));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM exhibition_items WHERE exhibition_id = ?", Integer.class, exhibitionId
+        ));
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM artworks WHERE id = ?", Integer.class, artworkId
+        ));
+    }
+
+    private void pauseFirstLockedLookup(
+            long exhibitionId,
+            AtomicInteger lockLookups,
+            CountDownLatch firstLockAcquired,
+            CountDownLatch secondLockLookupStarted,
+            CountDownLatch releaseFirstLock
+    ) {
+        doAnswer(invocation -> {
+            int lookupNumber = lockLookups.incrementAndGet();
+            if (lookupNumber == 2) {
+                secondLockLookupStarted.countDown();
+            }
+
+            Optional<Exhibition> exhibition = entityManager.createQuery(
+                            "select exhibition from Exhibition exhibition where exhibition.id = :exhibitionId",
+                            Exhibition.class
+                    )
+                    .setParameter("exhibitionId", exhibitionId)
+                    .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                    .getResultStream()
+                    .findFirst();
+            if (lookupNumber == 1) {
+                firstLockAcquired.countDown();
+                releaseFirstLock.await(5, TimeUnit.SECONDS);
+            }
+            return exhibition;
+        }).when(exhibitionRepository).findByIdForUpdate(exhibitionId);
     }
 
     private JsonNode createExhibition(String title, String summary, String introduction) throws Exception {
