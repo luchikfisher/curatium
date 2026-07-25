@@ -4,8 +4,6 @@ import com.curatium.artwork.application.MuseumArtworkSearchPage;
 import com.curatium.artwork.application.MuseumArtworkSearchService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,7 +22,7 @@ public class MuseumArtworkController {
 
     @GetMapping
     public MuseumArtworkSearchPage searchArtworks(
-            @RequestParam("q") @NotBlank @Size(min = 2, max = 100) String q,
+            @RequestParam("q") String q,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(20) int size
     ) {

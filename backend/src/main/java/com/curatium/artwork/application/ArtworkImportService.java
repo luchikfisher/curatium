@@ -3,6 +3,7 @@ package com.curatium.artwork.application;
 import com.curatium.artwork.domain.Artwork;
 import com.curatium.artwork.domain.ArtworkSource;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteClient;
+import com.curatium.artwork.integration.artinstitute.ArtInstituteArtworkNotFoundException;
 import com.curatium.artwork.persistence.ArtworkRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -54,8 +55,14 @@ public class ArtworkImportService {
             );
         }
 
-        MuseumArtworkSearchResult artworkDetails =
-                artInstituteClient.getArtwork(externalId);
+        MuseumArtworkSearchResult artworkDetails;
+        try {
+            artworkDetails = artInstituteClient.getArtwork(externalId);
+        } catch (ArtInstituteArtworkNotFoundException exception) {
+            throw new ArtworkNotImportableException(
+                    "The artwork was not found by the museum provider."
+            );
+        }
 
         if (!externalId.equals(artworkDetails.externalId())) {
             throw new ArtworkNotImportableException(

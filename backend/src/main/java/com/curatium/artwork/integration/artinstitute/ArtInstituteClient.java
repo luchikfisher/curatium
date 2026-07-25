@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Component
 public class ArtInstituteClient {
@@ -29,7 +30,6 @@ public class ArtInstituteClient {
     }
 
     public MuseumArtworkSearchPage search(String query, int page, int pageSize) {
-        String normalizedQuery = normalizeQuery(query);
         if (page < 1) {
             throw new IllegalArgumentException("Page must be at least 1.");
         }
@@ -42,7 +42,7 @@ public class ArtInstituteClient {
             response = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/artworks/search")
-                            .queryParam("q", normalizedQuery)
+                            .queryParam("q", query)
                             .queryParam("page", page)
                             .queryParam("limit", pageSize)
                             .queryParam("fields", FIELDS)
@@ -73,6 +73,14 @@ public class ArtInstituteClient {
                             .build(externalId.trim()))
                     .retrieve()
                     .body(ArtInstituteArtworkDetailResponse.class);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().value() == 404) {
+                throw new ArtInstituteArtworkNotFoundException(externalId.trim());
+            }
+            throw new ArtInstituteIntegrationException(
+                    "The Art Institute of Chicago service is unavailable.",
+                    exception
+            );
         } catch (RestClientException exception) {
             throw new ArtInstituteIntegrationException(
                     "The Art Institute of Chicago service is unavailable.",
@@ -139,13 +147,6 @@ public class ArtInstituteClient {
                 artwork.credit_line(),
                 Boolean.TRUE.equals(artwork.is_public_domain())
         );
-    }
-
-    private String normalizeQuery(String query) {
-        if (isBlank(query)) {
-            throw new IllegalArgumentException("Search query must not be blank.");
-        }
-        return query.trim();
     }
 
     private String iiifImageUrl(String iiifBaseUrl, String imageId, int width) {

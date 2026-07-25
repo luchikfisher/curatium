@@ -62,7 +62,7 @@ class ArtInstituteClientTest {
                     """);
         });
 
-        MuseumArtworkSearchPage page = client.search(" night ", 2, 20);
+        MuseumArtworkSearchPage page = client.search("night", 2, 20);
 
         assertEquals(2, page.page());
         assertEquals(20, page.pageSize());

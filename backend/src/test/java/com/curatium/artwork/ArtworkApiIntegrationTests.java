@@ -47,6 +47,7 @@ class ArtworkApiIntegrationTests {
     private static final AtomicReference<String> DETAIL_BODY = new AtomicReference<>();
     private static final AtomicInteger DETAIL_STATUS = new AtomicInteger();
     private static final AtomicInteger DETAIL_REQUESTS = new AtomicInteger();
+    private static final AtomicReference<String> SEARCH_QUERY = new AtomicReference<>();
     private static final AtomicReference<CountDownLatch> DETAIL_REQUEST_BARRIER = new AtomicReference<>();
     private static final AtomicReference<CountDownLatch> DETAIL_RESPONSE_GATE = new AtomicReference<>();
     private static final ExecutorService MUSEUM_SERVER_EXECUTOR = Executors.newFixedThreadPool(4);
@@ -83,6 +84,7 @@ class ArtworkApiIntegrationTests {
         DETAIL_STATUS.set(200);
         DETAIL_BODY.set(publicArtworkDetail());
         DETAIL_REQUESTS.set(0);
+        SEARCH_QUERY.set(null);
         DETAIL_REQUEST_BARRIER.set(null);
         DETAIL_RESPONSE_GATE.set(null);
     }
@@ -90,7 +92,7 @@ class ArtworkApiIntegrationTests {
     @Test
     void searchesMuseumArtworksWithValidatedPagination() throws Exception {
         mockMvc.perform(get("/api/museum/artworks")
-                        .param("q", "night")
+                        .param("q", " night ")
                         .param("page", "2")
                         .param("size", "10"))
                 .andExpect(status().isOk())
@@ -100,9 +102,11 @@ class ArtworkApiIntegrationTests {
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].externalId").value("154235"))
                 .andExpect(jsonPath("$.items[0].publicDomain").value(true));
+        assertEquals("q=night&page=2&limit=10&fields=id,title,artist_display,date_display,medium_display,image_id,credit_line,is_public_domain",
+                SEARCH_QUERY.get());
 
         mockMvc.perform(get("/api/museum/artworks")
-                        .param("q", " "))
+                        .param("q", "a "))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("q"));
@@ -180,6 +184,19 @@ class ArtworkApiIntegrationTests {
     }
 
     @Test
+    void rejectsArtworksMissingFromTheProviderWithoutTreatingItAsAnOutage() {
+        DETAIL_STATUS.set(404);
+
+        ArtworkNotImportableException exception = assertThrows(
+                ArtworkNotImportableException.class,
+                () -> importArtwork("stale-id")
+        );
+
+        assertEquals("The artwork was not found by the museum provider.", exception.getMessage());
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
+    }
+
+    @Test
     void concurrentFirstImportsReuseOnePersistedArtwork() throws Exception {
         CountDownLatch detailRequestsReady = new CountDownLatch(2);
         CountDownLatch releaseDetailResponses = new CountDownLatch(1);
@@ -212,7 +229,10 @@ class ArtworkApiIntegrationTests {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
             server.setExecutor(MUSEUM_SERVER_EXECUTOR);
-            server.createContext("/artworks/search", exchange -> writeJson(exchange, 200, searchResponse()));
+            server.createContext("/artworks/search", exchange -> {
+                SEARCH_QUERY.set(exchange.getRequestURI().getQuery());
+                writeJson(exchange, 200, searchResponse());
+            });
             server.createContext("/artworks/", exchange -> {
                 DETAIL_REQUESTS.incrementAndGet();
                 waitForConcurrentRequest();

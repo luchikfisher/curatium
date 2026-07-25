@@ -1,6 +1,7 @@
 package com.curatium.common.error;
 
 import com.curatium.artwork.application.ArtworkNotImportableException;
+import com.curatium.artwork.application.InvalidMuseumSearchRequestException;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
 import com.curatium.exhibition.application.ExhibitionNotEditableException;
 import com.curatium.exhibition.application.ExhibitionNotFoundException;
@@ -104,6 +105,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "VALIDATION_ERROR",
                 "The request contains invalid values.",
                 List.of(fieldError)
+        );
+    }
+
+    @ExceptionHandler(InvalidMuseumSearchRequestException.class)
+    public ResponseEntity<Object> handleInvalidMuseumSearchRequest(
+            InvalidMuseumSearchRequestException exception
+    ) {
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "The request contains invalid values.",
+                List.of(new ApiFieldError(exception.getField(), exception.getMessage()))
         );
     }
 
