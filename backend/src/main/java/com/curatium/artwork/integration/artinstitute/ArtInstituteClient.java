@@ -11,7 +11,6 @@ import org.springframework.web.client.RestClientException;
 @Component
 public class ArtInstituteClient {
 
-    private static final int PAGE_SIZE = 20;
     private static final String FIELDS = String.join(",",
             "id",
             "title",
@@ -29,10 +28,13 @@ public class ArtInstituteClient {
         this.restClient = artInstituteRestClient;
     }
 
-    public MuseumArtworkSearchPage search(String query, int page) {
+    public MuseumArtworkSearchPage search(String query, int page, int pageSize) {
         String normalizedQuery = normalizeQuery(query);
         if (page < 1) {
             throw new IllegalArgumentException("Page must be at least 1.");
+        }
+        if (pageSize < 1 || pageSize > 20) {
+            throw new IllegalArgumentException("Page size must be between 1 and 20.");
         }
 
         ArtInstituteSearchResponse response;
@@ -42,7 +44,7 @@ public class ArtInstituteClient {
                             .path("/artworks/search")
                             .queryParam("q", normalizedQuery)
                             .queryParam("page", page)
-                            .queryParam("limit", PAGE_SIZE)
+                            .queryParam("limit", pageSize)
                             .queryParam("fields", FIELDS)
                             .build())
                     .retrieve()
@@ -55,6 +57,38 @@ public class ArtInstituteClient {
         }
 
         return mapSearchResponse(response);
+    }
+
+    public MuseumArtworkSearchResult getArtwork(String externalId) {
+        if (isBlank(externalId)) {
+            throw new IllegalArgumentException("Artwork identifier must not be blank.");
+        }
+
+        ArtInstituteArtworkDetailResponse response;
+        try {
+            response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/artworks/{artworkId}")
+                            .queryParam("fields", FIELDS)
+                            .build(externalId.trim()))
+                    .retrieve()
+                    .body(ArtInstituteArtworkDetailResponse.class);
+        } catch (RestClientException exception) {
+            throw new ArtInstituteIntegrationException(
+                    "The Art Institute of Chicago service is unavailable.",
+                    exception
+            );
+        }
+
+        if (response == null || response.data() == null || response.config() == null
+                || isBlank(response.config().iiif_url()) || isBlank(response.config().website_url())
+                || response.data().id() == null || isBlank(response.data().title())) {
+            throw new ArtInstituteIntegrationException(
+                    "The Art Institute of Chicago returned an unusable response."
+            );
+        }
+
+        return toSearchResult(response.data(), response.config());
     }
 
     private MuseumArtworkSearchPage mapSearchResponse(ArtInstituteSearchResponse response) {
@@ -91,6 +125,7 @@ public class ArtInstituteClient {
             ArtInstituteArtworkResponse artwork,
             ArtInstituteConfigurationResponse configuration
     ) {
+        String imageId = artwork.image_id();
         return new MuseumArtworkSearchResult(
                 ArtworkSource.ART_INSTITUTE_OF_CHICAGO,
                 artwork.id().toString(),
@@ -98,11 +133,11 @@ public class ArtInstituteClient {
                 artwork.artist_display(),
                 artwork.date_display(),
                 artwork.medium_display(),
-                iiifImageUrl(configuration.iiif_url(), artwork.image_id(), 200),
-                iiifImageUrl(configuration.iiif_url(), artwork.image_id(), 843),
+                isBlank(imageId) ? null : iiifImageUrl(configuration.iiif_url(), imageId, 200),
+                isBlank(imageId) ? null : iiifImageUrl(configuration.iiif_url(), imageId, 843),
                 sourceUrl(configuration.website_url(), artwork.id()),
                 artwork.credit_line(),
-                true
+                Boolean.TRUE.equals(artwork.is_public_domain())
         );
     }
 
