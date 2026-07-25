@@ -539,6 +539,7 @@ function CurrentArtworkItem({
   const isMovingDown = activeMutationKind === 'move-down'
   const isRemoving = activeMutationKind === 'remove'
   const canClearNote = note.length > 0 || item.curatorialNote !== null
+  const artworkDescriptor = `artwork ${item.position} of ${itemCount}, ${item.artwork.title}`
 
   function submitNote(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -561,7 +562,7 @@ function CurrentArtworkItem({
           </div>
         </div>
         <form className="curatorial-note-form" onSubmit={submitNote} aria-busy={isSaving}>
-          <label htmlFor={noteId}>Curatorial note for {item.artwork.title}</label>
+          <label htmlFor={noteId}>Curatorial note for artwork {item.position} of {itemCount}: {item.artwork.title}</label>
           <textarea
             id={noteId}
             value={note}
@@ -573,32 +574,32 @@ function CurrentArtworkItem({
           />
           {noteError && <p className="field-error" id={noteErrorId}>{noteError}</p>}
           <div className="current-artwork-item__actions">
-            <button className="button button-secondary" type="submit" disabled={disabled}>
+            <button aria-label={isSaving ? `Saving note for ${artworkDescriptor}` : `Save note for ${artworkDescriptor}`} className="button button-secondary" type="submit" disabled={disabled}>
               {isSaving ? 'Saving…' : 'Save note'}
             </button>
-            <button className="button button-secondary" type="button" disabled={disabled || !canClearNote} onClick={() => onSaveNote(item, '')}>
+            <button aria-label={`Clear note for ${artworkDescriptor}`} className="button button-secondary" type="button" disabled={disabled || !canClearNote} onClick={() => onSaveNote(item, '')}>
               Clear note
             </button>
           </div>
         </form>
         <div className="current-artwork-item__actions">
-          <button aria-label={isMovingUp ? `Moving ${item.artwork.title} up` : `Move ${item.artwork.title} up`} className="button button-secondary" type="button" disabled={disabled || item.position === 1} onClick={() => onMove(item, 'up')}>
+          <button aria-label={isMovingUp ? `Moving ${artworkDescriptor} up` : `Move ${artworkDescriptor} up`} className="button button-secondary" type="button" disabled={disabled || item.position === 1} onClick={() => onMove(item, 'up')}>
             {isMovingUp ? 'Moving…' : 'Move up'}
           </button>
-          <button aria-label={isMovingDown ? `Moving ${item.artwork.title} down` : `Move ${item.artwork.title} down`} className="button button-secondary" type="button" disabled={disabled || item.position === itemCount} onClick={() => onMove(item, 'down')}>
+          <button aria-label={isMovingDown ? `Moving ${artworkDescriptor} down` : `Move ${artworkDescriptor} down`} className="button button-secondary" type="button" disabled={disabled || item.position === itemCount} onClick={() => onMove(item, 'down')}>
             {isMovingDown ? 'Moving…' : 'Move down'}
           </button>
           {!isConfirmingRemoval ? (
-            <button aria-label={`Remove ${item.artwork.title} from exhibition`} ref={removeButtonRef} className="button button-danger" type="button" disabled={disabled} onClick={() => onRequestRemoval(item.id)}>
+            <button aria-label={`Remove ${artworkDescriptor} from exhibition`} ref={removeButtonRef} className="button button-danger" type="button" disabled={disabled} onClick={() => onRequestRemoval(item.id)}>
               Remove artwork
             </button>
           ) : (
             <div className="item-removal-confirmation" role="alert">
               <p>Remove {item.artwork.title} from this exhibition? This cannot be undone.</p>
-              <button aria-label={isRemoving ? `Removing ${item.artwork.title}` : `Confirm removal of ${item.artwork.title}`} ref={confirmRemovalButtonRef} className="button button-danger" type="button" disabled={isBusy} onClick={() => onRemove(item)}>
+              <button aria-label={isRemoving ? `Removing ${artworkDescriptor}` : `Confirm removal of ${artworkDescriptor}`} ref={confirmRemovalButtonRef} className="button button-danger" type="button" disabled={isBusy} onClick={() => onRemove(item)}>
                 {isRemoving ? 'Removing…' : 'Confirm removal'}
               </button>
-              <button aria-label={`Keep ${item.artwork.title} in exhibition`} className="button button-secondary" type="button" disabled={isBusy} onClick={onCancelRemoval}>
+              <button aria-label={`Keep ${artworkDescriptor} in exhibition`} className="button button-secondary" type="button" disabled={isBusy} onClick={onCancelRemoval}>
                 Keep artwork
               </button>
             </div>

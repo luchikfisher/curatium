@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -469,10 +469,10 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    const note = await screen.findByLabelText('Curatorial note for First artwork')
+    const note = await screen.findByLabelText('Curatorial note for artwork 1 of 1: First artwork')
     await userEvent.clear(note)
     await userEvent.type(note, 'Browser draft')
-    await userEvent.click(screen.getByRole('button', { name: 'Save note' }))
+    await userEvent.click(screen.getByRole('button', { name: /Save note for artwork/ }))
 
     await waitFor(() => expect(note).toHaveValue('Server-normalized note'))
     expect(screen.getByText('Curatorial note saved.')).toBeInTheDocument()
@@ -491,8 +491,8 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    const note = await screen.findByLabelText('Curatorial note for First artwork')
-    await userEvent.click(screen.getByRole('button', { name: 'Clear note' }))
+    const note = await screen.findByLabelText('Curatorial note for artwork 1 of 1: First artwork')
+    await userEvent.click(screen.getByRole('button', { name: /Clear note for artwork/ }))
 
     await waitFor(() => expect(note).toHaveValue(''))
     expect(screen.getByText('Curatorial note cleared.')).toBeInTheDocument()
@@ -507,8 +507,10 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    await userEvent.type(await screen.findByLabelText('Curatorial note for First artwork'), 'x'.repeat(2001))
-    await userEvent.click(screen.getByRole('button', { name: 'Save note' }))
+    fireEvent.change(await screen.findByLabelText('Curatorial note for artwork 1 of 1: First artwork'), {
+      target: { value: 'x'.repeat(2001) },
+    })
+    await userEvent.click(screen.getByRole('button', { name: /Save note for artwork/ }))
 
     expect(screen.getByText('Curatorial note must be at most 2000 characters.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -526,9 +528,9 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    const note = await screen.findByLabelText('Curatorial note for First artwork')
+    const note = await screen.findByLabelText('Curatorial note for artwork 1 of 1: First artwork')
     await userEvent.type(note, 'A note')
-    await userEvent.click(screen.getByRole('button', { name: 'Save note' }))
+    await userEvent.click(screen.getByRole('button', { name: /Save note for artwork/ }))
 
     expect(await screen.findByText('Curatorial note must be at most 2000 characters.')).toBeInTheDocument()
     expect(note).toHaveAttribute('aria-invalid', 'true')
@@ -548,8 +550,8 @@ describe('museum artwork search and add flow', () => {
     await userEvent.type(query, 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     await screen.findByRole('heading', { name: 'Nocturne' })
-    await userEvent.type(screen.getByLabelText('Curatorial note for First artwork'), 'Draft note')
-    await userEvent.click(screen.getByRole('button', { name: 'Save note' }))
+    await userEvent.type(screen.getByLabelText('Curatorial note for artwork 1 of 1: First artwork'), 'Draft note')
+    await userEvent.click(screen.getByRole('button', { name: /Save note for artwork/ }))
 
     expect(await screen.findByText('Curatorial note saved.')).toBeInTheDocument()
     expect(query).toHaveValue('night')
@@ -574,11 +576,11 @@ describe('museum artwork search and add flow', () => {
     renderAt('/exhibitions/1/artworks')
 
     await screen.findByRole('heading', { name: 'Second artwork' })
-    await userEvent.click(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByRole('button', { name: 'Move Second artwork up' }))
+    await userEvent.click(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByRole('button', { name: 'Move artwork 2 of 3, Second artwork up' }))
     await waitFor(() => expect(within(screen.getByRole('list')).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       'Second artwork', 'First artwork', 'Third artwork',
     ]))
-    await userEvent.click(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByRole('button', { name: 'Move Second artwork down' }))
+    await userEvent.click(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByRole('button', { name: 'Move artwork 1 of 3, Second artwork down' }))
     await waitFor(() => expect(within(screen.getByRole('list')).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       'First artwork', 'Second artwork', 'Third artwork',
     ]))
@@ -594,9 +596,25 @@ describe('museum artwork search and add flow', () => {
     renderAt('/exhibitions/1/artworks')
 
     await screen.findByRole('heading', { name: 'First artwork' })
-    expect(within(screen.getByRole('heading', { name: 'First artwork' }).closest('article')!).getByRole('button', { name: 'Move First artwork up' })).toBeDisabled()
-    expect(within(screen.getByRole('heading', { name: 'Last artwork' }).closest('article')!).getByRole('button', { name: 'Move Last artwork down' })).toBeDisabled()
+    expect(within(screen.getByRole('heading', { name: 'First artwork' }).closest('article')!).getByRole('button', { name: 'Move artwork 1 of 2, First artwork up' })).toBeDisabled()
+    expect(within(screen.getByRole('heading', { name: 'Last artwork' }).closest('article')!).getByRole('button', { name: 'Move artwork 2 of 2, Last artwork down' })).toBeDisabled()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives same-titled artworks distinct note, move, and remove names', async () => {
+    const first = curatedItem('Untitled', 1)
+    const second = curatedItem('Untitled', 2)
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail({ items: [first, second] })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await screen.findAllByRole('heading', { name: 'Untitled' })
+    expect(screen.getByLabelText('Curatorial note for artwork 1 of 2: Untitled')).toBeInTheDocument()
+    expect(screen.getByLabelText('Curatorial note for artwork 2 of 2: Untitled')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move artwork 1 of 2, Untitled up' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move artwork 2 of 2, Untitled down' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove artwork 1 of 2, Untitled from exhibition' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove artwork 2 of 2, Untitled from exhibition' })).toBeInTheDocument()
   })
 
   it('requires removal confirmation and replaces the item list after deletion', async () => {
@@ -612,14 +630,14 @@ describe('museum artwork search and add flow', () => {
 
     const firstRow = () => within(screen.getByRole('heading', { name: 'First artwork' }).closest('article')!)
     await screen.findByRole('heading', { name: 'First artwork' })
-    await userEvent.click(firstRow().getByRole('button', { name: 'Remove First artwork from exhibition' }))
-    expect(await screen.findByRole('button', { name: 'Confirm removal of First artwork' })).toHaveFocus()
-    await userEvent.click(screen.getByRole('button', { name: 'Keep First artwork in exhibition' }))
+    await userEvent.click(firstRow().getByRole('button', { name: 'Remove artwork 1 of 2, First artwork from exhibition' }))
+    expect(await screen.findByRole('button', { name: 'Confirm removal of artwork 1 of 2, First artwork' })).toHaveFocus()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep artwork 1 of 2, First artwork in exhibition' }))
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(firstRow().getByRole('button', { name: 'Remove First artwork from exhibition' })).toHaveFocus()
+    expect(firstRow().getByRole('button', { name: 'Remove artwork 1 of 2, First artwork from exhibition' })).toHaveFocus()
 
-    await userEvent.click(firstRow().getByRole('button', { name: 'Remove First artwork from exhibition' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of First artwork' }))
+    await userEvent.click(firstRow().getByRole('button', { name: 'Remove artwork 1 of 2, First artwork from exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 2, First artwork' }))
     expect(await screen.findByText('Artwork removed.')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'First artwork' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Second artwork' })).toBeInTheDocument()
@@ -636,8 +654,8 @@ describe('museum artwork search and add flow', () => {
     renderAt('/exhibitions/1/artworks')
 
     await screen.findByRole('heading', { name: 'First artwork' })
-    await userEvent.click(screen.getByRole('button', { name: 'Remove First artwork from exhibition' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of First artwork' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove artwork 1 of 1, First artwork from exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 1, First artwork' }))
 
     expect(await screen.findByText('Could not remove artwork.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
@@ -654,12 +672,12 @@ describe('museum artwork search and add flow', () => {
     renderAt('/exhibitions/1/artworks')
 
     await screen.findByRole('heading', { name: 'First artwork' })
-    await userEvent.click(screen.getByRole('button', { name: 'Remove First artwork from exhibition' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of First artwork' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove artwork 1 of 1, First artwork from exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 1, First artwork' }))
 
     expect(await screen.findByText('The artwork was removed, but the artwork list could not be refreshed and may be stale.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'First artwork' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Confirm removal of First artwork' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm removal of artwork 1 of 1, First artwork' })).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
@@ -692,8 +710,8 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(within(screen.getByRole('heading', { name: 'Nocturne' }).closest('article')!).getByRole('button', { name: 'Add artwork' }))
     await userEvent.click(within(screen.getByRole('heading', { name: 'Moonlight' }).closest('article')!).getByRole('button', { name: 'Add artwork' }))
     await screen.findByRole('heading', { name: 'Current artworks (10/10)' })
-    await userEvent.click(screen.getByRole('button', { name: 'Remove Committed artwork 1 from exhibition' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of Committed artwork 1' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove artwork 1 of 10, Committed artwork 1 from exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 10, Committed artwork 1' }))
 
     expect(await screen.findByRole('heading', { name: 'Current artworks (9/10)' })).toBeInTheDocument()
     expect(screen.queryByText('This exhibition has reached its 10-artwork limit.')).not.toBeInTheDocument()
@@ -711,7 +729,7 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', itemMissingFetch)
     renderAt('/exhibitions/1/artworks')
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Save note' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Save note for artwork/ }))
     expect(await screen.findByText(/This artwork is no longer available/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'First artwork' })).toBeInTheDocument()
 
@@ -722,7 +740,7 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', exhibitionMissingFetch)
     renderAt('/exhibitions/1/artworks')
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Save note' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Save note for artwork/ }))
     expect(await screen.findByRole('heading', { name: 'Exhibition not found' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'First artwork' })).not.toBeInTheDocument()
   })
@@ -735,11 +753,11 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Save note' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Save note for artwork/ }))
 
     expect(await screen.findByText('This exhibition is published and read-only.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save note' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Remove First artwork from exhibition' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Save note for artwork/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Remove artwork 1 of 1, First artwork from exhibition' })).toBeDisabled()
   })
 
   it('prevents duplicate note submissions while a mutation is pending', async () => {
@@ -759,10 +777,10 @@ describe('museum artwork search and add flow', () => {
 
     const firstRow = within((await screen.findByRole('heading', { name: 'First artwork' })).closest('article')!)
     const secondRow = within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!)
-    await userEvent.click(firstRow.getByRole('button', { name: 'Save note' }))
-    expect(firstRow.getByRole('button', { name: 'Saving…' })).toBeDisabled()
-    expect(secondRow.getByRole('button', { name: 'Save note' })).toBeDisabled()
-    await userEvent.click(firstRow.getByRole('button', { name: 'Saving…' }))
+    await userEvent.click(firstRow.getByRole('button', { name: 'Save note for artwork 1 of 2, First artwork' }))
+    expect(firstRow.getByRole('button', { name: 'Saving note for artwork 1 of 2, First artwork' })).toBeDisabled()
+    expect(secondRow.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' })).toBeDisabled()
+    await userEvent.click(firstRow.getByRole('button', { name: 'Saving note for artwork 1 of 2, First artwork' }))
 
     expect(mutationSignal).toBeDefined()
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -787,7 +805,7 @@ describe('museum artwork search and add flow', () => {
     renderAt('/exhibitions/1/artworks')
 
     await screen.findByRole('heading', { name: 'Second artwork' })
-    await userEvent.click(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByRole('button', { name: 'Move Second artwork up' }))
+    await userEvent.click(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByRole('button', { name: 'Move artwork 2 of 2, Second artwork up' }))
     await waitFor(() => expect(mutationSignal).toBeDefined())
     window.history.pushState({}, '', '/exhibitions/2/artworks')
     window.dispatchEvent(new PopStateEvent('popstate'))
