@@ -601,6 +601,175 @@ describe('museum artwork search and add flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('selects a cover using the included artwork ID and displays the committed cover', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: second.artwork.id })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 2 of 2, Second artwork as cover' }))
+
+    expect(await screen.findByText('Cover updated.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear cover, artwork 2 of 2, Second artwork' })).toBeInTheDocument()
+    expect(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByText('Current cover')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/exhibitions/1/cover',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ artworkId: second.artwork.id }) }),
+    )
+  })
+
+  it('replaces the cover and uses the committed response rather than the requested artwork', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: first.artwork.id })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Replace cover with artwork 2 of 2, Second artwork' }))
+
+    expect(await screen.findByText('Cover updated.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear cover, artwork 1 of 2, First artwork' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear cover, artwork 2 of 2, Second artwork' })).not.toBeInTheDocument()
+  })
+
+  it('clears the cover from the committed response', async () => {
+    const first = curatedItem('First artwork', 1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(detail({ items: [first] })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Clear cover, artwork 1 of 1, First artwork' }))
+
+    expect(await screen.findByText('Cover cleared.')).toBeInTheDocument()
+    expect(screen.getByText('No cover selected. Choose an artwork below to use as the exhibition cover.')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/exhibitions/1/cover', expect.objectContaining({ method: 'DELETE' }))
+  })
+
+  it('displays an invalid-cover conflict without changing the current cover', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(error('INVALID_COVER_ARTWORK', 'That artwork is not in this exhibition.', 409), 409))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Replace cover with artwork 2 of 2, Second artwork' }))
+
+    expect(await screen.findByText('That artwork is not in this exhibition.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear cover, artwork 1 of 2, First artwork' })).toBeInTheDocument()
+  })
+
+  it('shows the exhibition-not-found state when cover selection reports a missing exhibition', async () => {
+    const first = curatedItem('First artwork', 1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first] })))
+      .mockResolvedValueOnce(respond(error('EXHIBITION_NOT_FOUND', 'Missing exhibition.', 404), 404))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 1 of 1, First artwork as cover' }))
+
+    expect(await screen.findByRole('heading', { name: 'Exhibition not found' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'First artwork' })).not.toBeInTheDocument()
+  })
+
+  it('handles a published-read-only cover response', async () => {
+    const first = curatedItem('First artwork', 1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first] })))
+      .mockResolvedValueOnce(respond(error('PUBLISHED_EXHIBITION_READ_ONLY', 'Read only.', 409), 409))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 1 of 1, First artwork as cover' }))
+
+    expect(await screen.findByText('This exhibition is published and read-only.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Set artwork 1 of 1, First artwork as cover' })).toBeDisabled()
+  })
+
+  it('prevents duplicate cover submissions while a cover request is pending', async () => {
+    let coverSignal: AbortSignal | undefined
+    const first = curatedItem('First artwork', 1)
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ items: [first] })))
+      if (path === '/api/exhibitions/1/cover') {
+        coverSignal = options?.signal as AbortSignal
+        return new Promise<Response>(() => {})
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const coverButton = await screen.findByRole('button', { name: 'Set artwork 1 of 1, First artwork as cover' })
+    await userEvent.click(coverButton)
+    expect(screen.getByRole('button', { name: 'Setting cover to artwork 1 of 1, First artwork' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Setting cover to artwork 1 of 1, First artwork' }))
+
+    expect(coverSignal).toBeDefined()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves search and curation state while replacing the committed cover', async () => {
+    const first = curatedItem('First artwork', 1, 'Committed note')
+    const second = curatedItem('Second artwork', 2)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(searchPage()))
+      .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: second.artwork.id })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const query = await loadSearchPage()
+    await userEvent.type(query, 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Nocturne' })
+    await userEvent.clear(screen.getByLabelText('Curatorial note for artwork 1 of 2: First artwork'))
+    await userEvent.type(screen.getByLabelText('Curatorial note for artwork 1 of 2: First artwork'), 'Draft note')
+    await userEvent.click(screen.getByRole('button', { name: 'Set artwork 2 of 2, Second artwork as cover' }))
+
+    await screen.findByText('Cover updated.')
+    expect(query).toHaveValue('night')
+    expect(screen.getByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Curatorial note for artwork 1 of 2: First artwork')).toHaveValue('Draft note')
+    expect(within(screen.getByRole('list')).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(['First artwork', 'Second artwork'])
+  })
+
+  it('aborts a stale cover request when the artwork route changes', async () => {
+    let coverSignal: AbortSignal | undefined
+    const first = curatedItem('First artwork', 1)
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ items: [first] })))
+      if (path === '/api/exhibitions/1/cover') {
+        coverSignal = options?.signal as AbortSignal
+        return new Promise<Response>((_, reject) => {
+          coverSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        })
+      }
+      if (path === '/api/exhibitions/2') return Promise.resolve(respond(detail({ id: 2, title: 'Second exhibition' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 1 of 1, First artwork as cover' }))
+    await waitFor(() => expect(coverSignal).toBeDefined())
+    window.history.pushState({}, '', '/exhibitions/2/artworks')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    await waitFor(() => expect(coverSignal?.aborted).toBe(true))
+    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+  })
+
   it('gives same-titled artworks distinct note, move, and remove names', async () => {
     const first = curatedItem('Untitled', 1)
     const second = curatedItem('Untitled', 2)
@@ -615,6 +784,8 @@ describe('museum artwork search and add flow', () => {
     expect(screen.getByRole('button', { name: 'Move artwork 2 of 2, Untitled down' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Remove artwork 1 of 2, Untitled from exhibition' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Remove artwork 2 of 2, Untitled from exhibition' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Set artwork 1 of 2, Untitled as cover' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Set artwork 2 of 2, Untitled as cover' })).toBeInTheDocument()
   })
 
   it('requires removal confirmation and replaces the item list after deletion', async () => {
@@ -622,7 +793,7 @@ describe('museum artwork search and add flow', () => {
     const second = curatedItem('Second artwork', 2)
     const remaining = { ...second, position: 1 }
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: first.artwork.id })))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(respond(detail({ items: [remaining] })))
     vi.stubGlobal('fetch', fetchMock)
@@ -641,6 +812,7 @@ describe('museum artwork search and add flow', () => {
     expect(await screen.findByText('Artwork removed.')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'First artwork' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Second artwork' })).toBeInTheDocument()
+    expect(screen.getByText('No cover selected. Choose an artwork below to use as the exhibition cover.')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/exhibitions/1/items/1', expect.objectContaining({ method: 'DELETE' }))
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
   })
