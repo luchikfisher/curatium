@@ -5,8 +5,8 @@ import com.curatium.artwork.domain.ArtworkSource;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteClient;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteArtworkNotFoundException;
 import com.curatium.artwork.persistence.ArtworkRepository;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -19,52 +19,35 @@ public class ArtworkImportService {
     private final TransactionTemplate transactionTemplate;
 
     public Artwork importArtwork(ArtworkSource source, String externalId) {
-        String normalizedExternalId = externalId.trim();
-
-        Artwork existingArtwork =
-                artworkRepository.findBySourceAndExternalId(source, normalizedExternalId)
-                        .orElse(null);
-
-        if (existingArtwork != null) {
-            return existingArtwork;
-        }
-
-        MuseumArtworkSearchResult artworkDetails =
-                getImportableArtwork(source, normalizedExternalId);
-
-        try {
-            return transactionTemplate.execute(status ->
-                    artworkRepository
-                            .findBySourceAndExternalId(source, normalizedExternalId)
-                            .orElseGet(() -> saveSnapshot(source, artworkDetails))
-            );
-        } catch (DataIntegrityViolationException exception) {
-            return artworkRepository
-                    .findBySourceAndExternalId(source, normalizedExternalId)
-                    .orElseThrow(() -> exception);
-        }
+        ArtworkImportPreparation preparation = prepareImport(source, externalId);
+        return transactionTemplate.execute(status -> findOrPersist(preparation));
     }
 
-    private MuseumArtworkSearchResult getImportableArtwork(
+    public ArtworkImportPreparation prepareImport(
             ArtworkSource source,
             String externalId
     ) {
+        String normalizedExternalId = externalId.trim();
         if (source != ArtworkSource.ART_INSTITUTE_OF_CHICAGO) {
             throw new ArtworkNotImportableException(
                     "This artwork source is not supported."
             );
         }
 
+        if (findLocalArtwork(source, normalizedExternalId).isPresent()) {
+            return new ArtworkImportPreparation(source, normalizedExternalId, null);
+        }
+
         MuseumArtworkSearchResult artworkDetails;
         try {
-            artworkDetails = artInstituteClient.getArtwork(externalId);
+            artworkDetails = artInstituteClient.getArtwork(normalizedExternalId);
         } catch (ArtInstituteArtworkNotFoundException exception) {
             throw new ArtworkNotImportableException(
                     "The artwork was not found by the museum provider."
             );
         }
 
-        if (!externalId.equals(artworkDetails.externalId())) {
+        if (!normalizedExternalId.equals(artworkDetails.externalId())) {
             throw new ArtworkNotImportableException(
                     "The provider returned a different artwork."
             );
@@ -83,27 +66,57 @@ public class ArtworkImportService {
             );
         }
 
-        return artworkDetails;
+        return new ArtworkImportPreparation(
+                source,
+                normalizedExternalId,
+                new ValidatedArtworkSnapshot(
+                        source,
+                        artworkDetails.externalId(),
+                        artworkDetails.title(),
+                        artworkDetails.artistDisplay(),
+                        artworkDetails.dateDisplay(),
+                        artworkDetails.mediumDisplay(),
+                        artworkDetails.thumbnailUrl(),
+                        artworkDetails.imageUrl(),
+                        artworkDetails.sourceUrl(),
+                        artworkDetails.creditLine()
+                )
+        );
     }
 
-    private Artwork saveSnapshot(
-            ArtworkSource source,
-            MuseumArtworkSearchResult artworkDetails
-    ) {
-        Artwork artwork = Artwork.importSnapshot(
-                source,
-                artworkDetails.externalId(),
-                artworkDetails.title(),
-                artworkDetails.artistDisplay(),
-                artworkDetails.dateDisplay(),
-                artworkDetails.mediumDisplay(),
-                artworkDetails.thumbnailUrl(),
-                artworkDetails.imageUrl(),
-                artworkDetails.sourceUrl(),
-                artworkDetails.creditLine()
-        );
+    public Artwork findOrPersist(ArtworkImportPreparation preparation) {
+        return findLocalArtwork(preparation)
+                .orElseGet(() -> persistValidatedSnapshot(preparation));
+    }
 
-        return artworkRepository.saveAndFlush(artwork);
+    public Optional<Artwork> findLocalArtwork(ArtworkImportPreparation preparation) {
+        return findLocalArtwork(preparation.source(), preparation.externalId());
+    }
+
+    private Optional<Artwork> findLocalArtwork(ArtworkSource source, String externalId) {
+        return artworkRepository.findBySourceAndExternalId(source, externalId);
+    }
+
+    private Artwork persistValidatedSnapshot(ArtworkImportPreparation preparation) {
+        ValidatedArtworkSnapshot snapshot = preparation.validatedSnapshot();
+        if (snapshot == null) {
+            throw new IllegalStateException("The local artwork snapshot is no longer available.");
+        }
+
+        artworkRepository.insertSnapshotIfAbsent(
+                snapshot.source().name(),
+                snapshot.externalId(),
+                snapshot.title(),
+                snapshot.artistDisplay(),
+                snapshot.dateDisplay(),
+                snapshot.mediumDisplay(),
+                snapshot.thumbnailUrl(),
+                snapshot.imageUrl(),
+                snapshot.sourceUrl(),
+                snapshot.creditLine()
+        );
+        return artworkRepository.findBySourceAndExternalId(snapshot.source(), snapshot.externalId())
+                .orElseThrow(() -> new IllegalStateException("Unable to persist artwork snapshot."));
     }
 
     private boolean isBlank(String value) {

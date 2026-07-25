@@ -40,6 +40,15 @@ public class ExhibitionController {
         return exhibitionService.getExhibition(exhibitionId);
     }
 
+    @PostMapping("/{exhibitionId}/items")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ExhibitionItemResponse addExhibitionItem(
+            @PathVariable long exhibitionId,
+            @Valid @RequestBody AddExhibitionItemRequest request
+    ) {
+        return exhibitionService.addArtwork(exhibitionId, request);
+    }
+
     @PutMapping("/{exhibitionId}")
     public ExhibitionDetailResponse updateExhibition(
             @PathVariable long exhibitionId,
