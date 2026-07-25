@@ -9,18 +9,22 @@ import com.curatium.exhibition.api.ExhibitionDetailResponse;
 import com.curatium.exhibition.api.ExhibitionArtworkResponse;
 import com.curatium.exhibition.api.ExhibitionItemResponse;
 import com.curatium.exhibition.api.ExhibitionSummaryResponse;
+import com.curatium.exhibition.api.UpdateCuratorialNoteRequest;
 import com.curatium.exhibition.api.UpdateExhibitionRequest;
 import com.curatium.exhibition.domain.Exhibition;
 import com.curatium.exhibition.domain.ExhibitionItem;
 import com.curatium.exhibition.persistence.ExhibitionItemRepository;
 import com.curatium.exhibition.persistence.ExhibitionRepository;
 import java.util.List;
+
+import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
+@RequiredArgsConstructor
 public class ExhibitionService {
 
     private static final int MAXIMUM_ARTWORK_COUNT = 10;
@@ -29,18 +33,6 @@ public class ExhibitionService {
     private final ExhibitionItemRepository exhibitionItemRepository;
     private final ArtworkImportService artworkImportService;
     private final TransactionTemplate transactionTemplate;
-
-    public ExhibitionService(
-            ExhibitionRepository exhibitionRepository,
-            ExhibitionItemRepository exhibitionItemRepository,
-            ArtworkImportService artworkImportService,
-            TransactionTemplate transactionTemplate
-    ) {
-        this.exhibitionRepository = exhibitionRepository;
-        this.exhibitionItemRepository = exhibitionItemRepository;
-        this.artworkImportService = artworkImportService;
-        this.transactionTemplate = transactionTemplate;
-    }
 
     @Transactional(readOnly = true)
     public List<ExhibitionSummaryResponse> listExhibitions() {
@@ -105,6 +97,52 @@ public class ExhibitionService {
         }
     }
 
+    public ExhibitionItemResponse updateCuratorialNote(
+            long exhibitionId,
+            long itemId,
+            UpdateCuratorialNoteRequest request
+    ) {
+        return transactionTemplate.execute(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            requireDraft(exhibition);
+
+            ExhibitionItem item = getRequiredExhibitionItem(exhibitionId, itemId);
+            item.updateCuratorialNote(normalizeOptionalText(request.curatorialNote()));
+            return toItemResponse(exhibitionItemRepository.saveAndFlush(item));
+        });
+    }
+
+    public void removeExhibitionItem(long exhibitionId, long itemId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            requireDraft(exhibition);
+
+            ExhibitionItem item = getRequiredExhibitionItem(exhibitionId, itemId);
+            int itemCount = (int) exhibitionItemRepository.countByExhibitionId(exhibitionId);
+            int removedPosition = item.getPosition();
+            exhibition.clearCoverArtworkIfMatches(item.getArtwork());
+            exhibitionItemRepository.delete(item);
+            exhibitionItemRepository.flush();
+
+            if (removedPosition < itemCount) {
+                exhibitionItemRepository.movePositionsAboveRemovedItemOutOfRange(
+                        exhibitionId,
+                        removedPosition,
+                        itemCount
+                );
+                exhibitionItemRepository.normalizePositionsAfterRemoval(exhibitionId, itemCount);
+            }
+        });
+    }
+
+    public List<ExhibitionItemResponse> moveExhibitionItemUp(long exhibitionId, long itemId) {
+        return moveExhibitionItem(exhibitionId, itemId, -1);
+    }
+
+    public List<ExhibitionItemResponse> moveExhibitionItemDown(long exhibitionId, long itemId) {
+        return moveExhibitionItem(exhibitionId, itemId, 1);
+    }
+
     private ExhibitionItemResponse addArtworkInTransaction(
             long exhibitionId,
             ArtworkImportPreparation importPreparation
@@ -127,6 +165,39 @@ public class ExhibitionService {
         return toItemResponse(exhibitionItemRepository.saveAndFlush(item));
     }
 
+    private List<ExhibitionItemResponse> moveExhibitionItem(
+            long exhibitionId,
+            long itemId,
+            int direction
+    ) {
+        return transactionTemplate.execute(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            requireDraft(exhibition);
+
+            ExhibitionItem item = getRequiredExhibitionItem(exhibitionId, itemId);
+            List<ExhibitionItem> items = exhibitionItemRepository.findByExhibitionIdOrderByPositionAsc(exhibitionId);
+            int targetPosition = item.getPosition() + direction;
+            if (targetPosition < 1 || targetPosition > items.size()) {
+                return toItemResponses(items);
+            }
+
+            ExhibitionItem adjacentItem = items.stream()
+                    .filter(candidate -> candidate.getPosition() == targetPosition)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Exhibition item positions are invalid."));
+
+            int originalPosition = item.getPosition();
+            item.moveToPosition(items.size() + 1);
+            exhibitionItemRepository.saveAndFlush(item);
+            adjacentItem.moveToPosition(originalPosition);
+            exhibitionItemRepository.saveAndFlush(adjacentItem);
+            item.moveToPosition(targetPosition);
+            exhibitionItemRepository.saveAndFlush(item);
+
+            return toItemResponses(exhibitionItemRepository.findByExhibitionIdOrderByPositionAsc(exhibitionId));
+        });
+    }
+
     private void validateCanAddArtwork(long exhibitionId) {
         Exhibition exhibition = getRequiredExhibition(exhibitionId);
         requireDraft(exhibition);
@@ -138,6 +209,16 @@ public class ExhibitionService {
     private Exhibition getRequiredExhibition(long exhibitionId) {
         return exhibitionRepository.findById(exhibitionId)
                 .orElseThrow(() -> new ExhibitionNotFoundException(exhibitionId));
+    }
+
+    private Exhibition getRequiredLockedExhibition(long exhibitionId) {
+        return exhibitionRepository.findByIdForUpdate(exhibitionId)
+                .orElseThrow(() -> new ExhibitionNotFoundException(exhibitionId));
+    }
+
+    private ExhibitionItem getRequiredExhibitionItem(long exhibitionId, long itemId) {
+        return exhibitionItemRepository.findByIdAndExhibitionId(itemId, exhibitionId)
+                .orElseThrow(() -> new ExhibitionItemNotFoundException(itemId));
     }
 
     private void requireDraft(Exhibition exhibition) {
@@ -201,6 +282,12 @@ public class ExhibitionService {
                 item.getPosition(),
                 item.getCuratorialNote()
         );
+    }
+
+    private List<ExhibitionItemResponse> toItemResponses(List<ExhibitionItem> items) {
+        return items.stream()
+                .map(this::toItemResponse)
+                .toList();
     }
 
     private ExhibitionArtworkResponse toArtworkResponse(Artwork artwork) {

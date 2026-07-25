@@ -85,6 +85,12 @@ public class Exhibition {
         return status == ExhibitionStatus.DRAFT;
     }
 
+    public void clearCoverArtworkIfMatches(Artwork artwork) {
+        if (coverArtwork != null && coverArtwork.getId().equals(artwork.getId())) {
+            coverArtwork = null;
+        }
+    }
+
     public List<ExhibitionItem> getItems() {
         return List.copyOf(items);
     }
