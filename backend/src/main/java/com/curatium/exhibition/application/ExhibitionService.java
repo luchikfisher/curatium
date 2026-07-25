@@ -58,7 +58,7 @@ public class ExhibitionService {
 
     @Transactional
     public ExhibitionDetailResponse updateExhibition(long exhibitionId, UpdateExhibitionRequest request) {
-        Exhibition exhibition = getRequiredExhibition(exhibitionId);
+        Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
         requireDraft(exhibition);
         exhibition.updateMetadata(
                 normalizeTitle(request.title()),

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -17,11 +19,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.curatium.exhibition.domain.Exhibition;
+import com.curatium.exhibition.persistence.ExhibitionRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CountDownLatch;
@@ -42,6 +49,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
@@ -74,6 +82,12 @@ class ExhibitionApiIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @MockitoSpyBean
+    private ExhibitionRepository exhibitionRepository;
 
     @DynamicPropertySource
     static void museumProperties(DynamicPropertyRegistry registry) {
@@ -398,6 +412,75 @@ class ExhibitionApiIntegrationTests {
                 "SELECT count(*) FROM artworks WHERE id = ?", Integer.class, coverArtworkId
         ));
         assertContinuousPositions(exhibitionId);
+    }
+
+    @Test
+    void serializesMetadataUpdateAndCoverItemRemoval() throws Exception {
+        long exhibitionId = insertExhibition("Metadata and cover");
+        long coverArtworkId = insertArtwork("concurrent-cover");
+        long coverItemId = insertExhibitionItem(exhibitionId, coverArtworkId, 1);
+        jdbcTemplate.update("UPDATE exhibitions SET cover_artwork_id = ? WHERE id = ?", coverArtworkId, exhibitionId);
+
+        AtomicInteger lockLookups = new AtomicInteger();
+        CountDownLatch metadataLockAcquired = new CountDownLatch(1);
+        CountDownLatch removalLockLookupStarted = new CountDownLatch(1);
+        CountDownLatch releaseMetadataUpdate = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            int lookupNumber = lockLookups.incrementAndGet();
+            if (lookupNumber == 2) {
+                removalLockLookupStarted.countDown();
+            }
+
+            Optional<Exhibition> exhibition = entityManager.createQuery(
+                            "select exhibition from Exhibition exhibition where exhibition.id = :exhibitionId",
+                            Exhibition.class
+                    )
+                    .setParameter("exhibitionId", exhibitionId)
+                    .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                    .getResultStream()
+                    .findFirst();
+            if (lookupNumber == 1) {
+                metadataLockAcquired.countDown();
+                releaseMetadataUpdate.await(5, TimeUnit.SECONDS);
+            }
+            return exhibition;
+        }).when(exhibitionRepository).findByIdForUpdate(exhibitionId);
+
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            Future<MvcResult> metadataUpdate = callers.submit(() -> mockMvc.perform(
+                            put("/api/exhibitions/{exhibitionId}", exhibitionId)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"title\":\"Updated metadata\"}")
+                    )
+                    .andReturn());
+            assertTrue(metadataLockAcquired.await(5, TimeUnit.SECONDS));
+
+            Future<MvcResult> removeCoverItem = callers.submit(() -> mockMvc.perform(
+                            delete("/api/exhibitions/{exhibitionId}/items/{itemId}", exhibitionId, coverItemId)
+                    )
+                    .andReturn());
+            assertTrue(removalLockLookupStarted.await(5, TimeUnit.SECONDS));
+
+            releaseMetadataUpdate.countDown();
+
+            assertEquals(200, metadataUpdate.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(204, removeCoverItem.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+        } finally {
+            releaseMetadataUpdate.countDown();
+            callers.shutdownNow();
+            reset(exhibitionRepository);
+        }
+
+        assertEquals("Updated metadata", jdbcTemplate.queryForObject(
+                "SELECT title FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        ));
+        assertNull(jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, exhibitionId
+        ));
+        assertEquals(0, jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM exhibition_items WHERE id = ?", Integer.class, coverItemId
+        ));
     }
 
     @Test
