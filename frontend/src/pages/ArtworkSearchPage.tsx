@@ -24,7 +24,10 @@ const SEARCH_PAGE_SIZE = 20
 const MAXIMUM_CURATORIAL_NOTE_LENGTH = 2000
 
 type ItemMutationKind = 'note' | 'move-up' | 'move-down' | 'remove'
-type CoverMutationKind = 'select' | 'clear'
+
+type CoverMutation =
+  | { kind: 'select'; itemId: number }
+  | { kind: 'clear' }
 
 interface ItemMutation {
   itemId: number
@@ -56,7 +59,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [itemError, setItemError] = useState('')
   const [itemSuccess, setItemSuccess] = useState('')
   const [itemMutation, setItemMutation] = useState<ItemMutation | null>(null)
-  const [coverMutation, setCoverMutation] = useState<CoverMutationKind | null>(null)
+  const [coverMutation, setCoverMutation] = useState<CoverMutation | null>(null)
   const [coverError, setCoverError] = useState('')
   const [coverSuccess, setCoverSuccess] = useState('')
   const [removingItemId, setRemovingItemId] = useState<number | null>(null)
@@ -252,11 +255,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setAddError('An unexpected problem occurred while adding the artwork. Please try again.')
   }
 
-  function beginCoverMutation(kind: CoverMutationKind): AbortController | null {
+  function beginCoverMutation(mutation: CoverMutation): AbortController | null {
     if (isReadOnly || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null) return null
     const controller = new AbortController()
     coverMutationController.current = controller
-    setCoverMutation(kind)
+    setCoverMutation(mutation)
     setCoverError('')
     setCoverSuccess('')
     return controller
@@ -288,7 +291,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   async function selectCover(item: ExhibitionItem) {
-    const controller = beginCoverMutation('select')
+    const controller = beginCoverMutation({ kind: 'select', itemId: item.id })
     if (!controller) return
     try {
       const updatedExhibition = await selectExhibitionCover(
@@ -308,7 +311,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   async function clearCover() {
-    const controller = beginCoverMutation('clear')
+    const controller = beginCoverMutation({ kind: 'clear' })
     if (!controller) return
     try {
       const updatedExhibition = await clearExhibitionCover(
@@ -520,7 +523,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                 disabled={isReadOnly || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null}
                 onClick={clearCover}
               >
-                {coverMutation === 'clear' ? 'Clearing…' : 'Clear cover'}
+                {coverMutation?.kind === 'clear' ? 'Clearing…' : 'Clear cover'}
               </button>
             </div>
           </div>
@@ -644,7 +647,7 @@ function CurrentArtworkItem({
   noteError?: string
   isReadOnly: boolean
   isBusy: boolean
-  coverMutation: CoverMutationKind | null
+  coverMutation: CoverMutation | null
   hasCurrentCover: boolean
   isCurrentCover: boolean
   activeMutationKind: ItemMutationKind | null
@@ -668,7 +671,7 @@ function CurrentArtworkItem({
   const isRemoving = activeMutationKind === 'remove'
   const canClearNote = note.length > 0 || item.curatorialNote !== null
   const artworkDescriptor = `artwork ${item.position} of ${itemCount}, ${item.artwork.title}`
-  const isSettingCover = coverMutation === 'select'
+  const isSettingCover = coverMutation?.kind === 'select' && coverMutation.itemId === item.id
 
   function submitNote(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -719,6 +719,27 @@ describe('museum artwork search and add flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('shows cover-selection progress only on the selected artwork', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const third = curatedItem('Third artwork', 3)
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ items: [first, second, third] })))
+      if (path === '/api/exhibitions/1/cover') return new Promise<Response>(() => {})
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 2 of 3, Second artwork as cover' }))
+
+    expect(screen.getByRole('button', { name: 'Setting cover to artwork 2 of 3, Second artwork' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Set artwork 1 of 3, First artwork as cover' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Set artwork 3 of 3, Third artwork as cover' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Setting cover to artwork 1 of 3, First artwork' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Setting cover to artwork 3 of 3, Third artwork' })).not.toBeInTheDocument()
+  })
+
   it('preserves search and curation state while replacing the committed cover', async () => {
     const first = curatedItem('First artwork', 1, 'Committed note')
     const second = curatedItem('Second artwork', 2)
