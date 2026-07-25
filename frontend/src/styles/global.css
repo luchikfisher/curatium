@@ -108,6 +108,24 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .current-artwork-list { display: grid; gap: .6rem; margin: 0; padding-left: 1.5rem; }
 .current-artwork-list li { color: var(--muted); line-height: 1.5; }
 .current-artwork-list li span { color: var(--ink); font-variant-numeric: tabular-nums; }
+.current-artwork-list--curation { gap: 1.5rem; padding-left: 0; list-style: none; }
+.current-artwork-item { color: var(--ink) !important; }
+.current-artwork-item > article { display: grid; gap: 1.25rem; border: 1px solid var(--line); padding: 1.25rem; background: var(--paper); }
+.current-artwork-item__summary { display: flex; align-items: flex-start; gap: 1rem; }
+.current-artwork-item__summary img, .current-artwork-item__image-placeholder { width: 5.25rem; height: 4rem; flex: 0 0 auto; object-fit: cover; background: #dedbd3; }
+.current-artwork-item__summary p, .current-artwork-item__summary h3 { margin: 0; }
+.current-artwork-item__summary h3 { font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 400; line-height: 1.2; }
+.current-artwork-item__summary > div > p:last-child, .current-artwork-item__position { color: var(--muted); }
+.current-artwork-item__position { margin-bottom: .35rem !important; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.curatorial-note-form { display: grid; gap: .55rem; }
+.curatorial-note-form label { font-weight: 700; }
+.curatorial-note-form textarea { width: 100%; min-height: 6rem; border: 1px solid var(--line); border-radius: 0; padding: .75rem; background: var(--paper); color: var(--ink); font: inherit; line-height: 1.5; resize: vertical; }
+.curatorial-note-form textarea[aria-invalid="true"] { border-color: #a63425; }
+.current-artwork-item__actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.current-artwork-item__actions .button-secondary { margin: 0; }
+.current-artwork-item__actions .button-danger { margin: 0; }
+.item-removal-confirmation { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: .75rem; border: 1px solid #d7a69f; padding: 1rem; background: #fff3f0; }
+.item-removal-confirmation p { flex-basis: 100%; margin: 0; color: #69231b; }
 .museum-search-form { display: grid; gap: .6rem; max-width: 42rem; }
 .museum-search-form label { font-weight: 700; }
 .museum-search-form__controls { display: flex; gap: .75rem; }
@@ -143,6 +161,8 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
   .editor-page { padding-bottom: 4rem; }
   .artwork-search-page { padding-bottom: 4rem; }
   .museum-search-form__controls { align-items: stretch; flex-direction: column; }
+  .current-artwork-item__summary { align-items: stretch; flex-direction: column; }
+  .current-artwork-item__summary img, .current-artwork-item__image-placeholder { width: 100%; height: auto; aspect-ratio: 4 / 3; }
   .state-panel { padding: 2rem 1rem; }
 }
 

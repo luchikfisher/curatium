@@ -5,16 +5,28 @@ import { EmptyState, LoadingState } from '../components/AsyncState'
 import {
   addExhibitionArtwork,
   getExhibition,
+  moveExhibitionItem,
+  removeExhibitionItem,
   searchMuseumArtworks,
+  updateExhibitionItemNote,
 } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import type {
   ExhibitionDetail,
+  ExhibitionItem,
   MuseumArtworkSearchPage,
   MuseumArtworkSearchResult,
 } from '../features/exhibitions/types'
 
 const SEARCH_PAGE_SIZE = 20
+const MAXIMUM_CURATORIAL_NOTE_LENGTH = 2000
+
+type ItemMutationKind = 'note' | 'move-up' | 'move-down' | 'remove'
+
+interface ItemMutation {
+  itemId: number
+  kind: ItemMutationKind
+}
 
 export function ArtworkSearchPage() {
   const { id } = useParams()
@@ -36,15 +48,46 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [readOnly, setReadOnly] = useState(false)
   const [capacityReached, setCapacityReached] = useState(false)
   const [duplicateArtworkKeys, setDuplicateArtworkKeys] = useState<Set<string>>(() => new Set())
+  const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
+  const [noteErrors, setNoteErrors] = useState<Record<number, string | undefined>>({})
+  const [itemError, setItemError] = useState('')
+  const [itemSuccess, setItemSuccess] = useState('')
+  const [itemMutation, setItemMutation] = useState<ItemMutation | null>(null)
+  const [removingItemId, setRemovingItemId] = useState<number | null>(null)
+  const [exhibitionNotFound, setExhibitionNotFound] = useState(false)
   const searchController = useRef<AbortController | null>(null)
   const addController = useRef<AbortController | null>(null)
+  const itemMutationController = useRef<AbortController | null>(null)
   const searchRequest = useRef(0)
   const lastSearch = useRef<{ query: string; page: number } | null>(null)
+  const confirmRemovalButtonRef = useRef<HTMLButtonElement | null>(null)
+  const removeButtonRefs = useRef(new Map<number, HTMLButtonElement>())
+  const restoreRemovalFocus = useRef<number | null>(null)
 
   useEffect(() => () => {
     searchController.current?.abort()
     addController.current?.abort()
+    itemMutationController.current?.abort()
   }, [])
+  useEffect(() => {
+    if (removingItemId !== null) {
+      confirmRemovalButtonRef.current?.focus()
+    } else if (restoreRemovalFocus.current !== null) {
+      removeButtonRefs.current.get(restoreRemovalFocus.current)?.focus()
+      restoreRemovalFocus.current = null
+    }
+  }, [removingItemId])
+
+  if (exhibitionNotFound) {
+    return (
+      <ExhibitionNotFound
+        onRetry={() => {
+          setExhibitionNotFound(false)
+          retryLoad()
+        }}
+      />
+    )
+  }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
     if (!loadError) return <LoadingState label="Loading exhibition artworks…" />
@@ -57,6 +100,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const currentExhibition = exhibition
   const isReadOnly = readOnly || currentExhibition.status === 'PUBLISHED'
   const atCapacity = capacityReached || currentExhibition.items.length >= 10
+  const itemMutationInProgress = itemMutation !== null
   const committedArtworkKeys = new Set(currentExhibition.items.map((item) => artworkKey(item.artwork)))
 
   function changeQuery(value: string) {
@@ -119,7 +163,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   async function addArtwork(artwork: MuseumArtworkSearchResult) {
     const key = artworkKey(artwork)
-    if (isReadOnly || atCapacity || addingExternalId !== null || committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)) {
+    if (isReadOnly || atCapacity || itemMutationInProgress || addingExternalId !== null || committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)) {
       return
     }
     const controller = new AbortController()
@@ -196,6 +240,170 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setAddError('An unexpected problem occurred while adding the artwork. Please try again.')
   }
 
+  function noteValue(item: ExhibitionItem): string {
+    return noteDrafts[item.id] ?? item.curatorialNote ?? ''
+  }
+
+  function changeNote(itemId: number, value: string) {
+    setNoteDrafts((current) => ({ ...current, [itemId]: value }))
+    setNoteErrors((current) => ({ ...current, [itemId]: undefined }))
+    setItemError('')
+    setItemSuccess('')
+  }
+
+  function beginItemMutation(itemId: number, kind: ItemMutationKind): AbortController | null {
+    if (isReadOnly || itemMutationInProgress || addingExternalId !== null) return null
+    const controller = new AbortController()
+    itemMutationController.current = controller
+    setItemMutation({ itemId, kind })
+    setItemError('')
+    setItemSuccess('')
+    return controller
+  }
+
+  function isCurrentItemMutation(controller: AbortController) {
+    return !controller.signal.aborted && itemMutationController.current === controller
+  }
+
+  function clearNoteDraft(itemId: number) {
+    setNoteDrafts((current) => {
+      const remaining = { ...current }
+      delete remaining[itemId]
+      return remaining
+    })
+    setNoteErrors((current) => {
+      const remaining = { ...current }
+      delete remaining[itemId]
+      return remaining
+    })
+  }
+
+  function handleItemMutationError(reason: unknown, itemId: number) {
+    const error = reason instanceof Error ? reason : new Error('Unknown error')
+    if (isFrontendError(error)) {
+      if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
+        setReadOnly(true)
+        setRemovingItemId(null)
+        return
+      }
+      const noteFieldError = error.fieldErrors.find((fieldError) => fieldError.field === 'curatorialNote')
+      if (noteFieldError) {
+        setNoteErrors((current) => ({ ...current, [itemId]: noteFieldError.message }))
+        return
+      }
+      if (error.code === 'EXHIBITION_NOT_FOUND') {
+        setRemovingItemId(null)
+        setExhibitionNotFound(true)
+        return
+      }
+      if (error.code === 'EXHIBITION_ITEM_NOT_FOUND') {
+        setRemovingItemId(null)
+        setItemError('This artwork is no longer available in this exhibition. Refresh the page to see the latest items.')
+        return
+      }
+      setItemError(error.message)
+      return
+    }
+    setItemError('An unexpected problem occurred while updating this artwork. Please try again.')
+  }
+
+  async function saveNote(item: ExhibitionItem, value = noteValue(item)) {
+    if (value.length > MAXIMUM_CURATORIAL_NOTE_LENGTH) {
+      setNoteErrors((current) => ({
+        ...current,
+        [item.id]: `Curatorial note must be at most ${MAXIMUM_CURATORIAL_NOTE_LENGTH} characters.`,
+      }))
+      return
+    }
+    const controller = beginItemMutation(item.id, 'note')
+    if (!controller) return
+    try {
+      const updatedItem = await updateExhibitionItemNote(
+        currentExhibition.id,
+        item.id,
+        value,
+        controller.signal,
+      )
+      if (isCurrentItemMutation(controller)) {
+        replace(withReplacedItem(currentExhibition, updatedItem))
+        clearNoteDraft(item.id)
+        setItemSuccess(value.trim() ? 'Curatorial note saved.' : 'Curatorial note cleared.')
+      }
+    } catch (reason) {
+      if (isCurrentItemMutation(controller)) handleItemMutationError(reason, item.id)
+    } finally {
+      if (isCurrentItemMutation(controller)) setItemMutation(null)
+    }
+  }
+
+  async function moveItem(item: ExhibitionItem, direction: 'up' | 'down') {
+    const controller = beginItemMutation(item.id, `move-${direction}`)
+    if (!controller) return
+    try {
+      const orderedItems = await moveExhibitionItem(
+        currentExhibition.id,
+        item.id,
+        direction,
+        controller.signal,
+      )
+      if (isCurrentItemMutation(controller)) {
+        replace(withItems(currentExhibition, orderedItems))
+        setItemSuccess(`Artwork moved ${direction}.`)
+      }
+    } catch (reason) {
+      if (isCurrentItemMutation(controller)) handleItemMutationError(reason, item.id)
+    } finally {
+      if (isCurrentItemMutation(controller)) setItemMutation(null)
+    }
+  }
+
+  function requestRemoval(itemId: number) {
+    if (isReadOnly || itemMutationInProgress || addingExternalId !== null) return
+    setItemError('')
+    setItemSuccess('')
+    setRemovingItemId(itemId)
+  }
+
+  function cancelRemoval() {
+    restoreRemovalFocus.current = removingItemId
+    setRemovingItemId(null)
+  }
+
+  async function removeItem(item: ExhibitionItem) {
+    const controller = beginItemMutation(item.id, 'remove')
+    if (!controller) return
+    let removalCommitted = false
+    try {
+      await removeExhibitionItem(currentExhibition.id, item.id, controller.signal)
+      removalCommitted = true
+      const refreshedExhibition = await getExhibition(currentExhibition.id, controller.signal)
+      if (isCurrentItemMutation(controller)) {
+        replace(refreshedExhibition)
+        setCapacityReached(refreshedExhibition.items.length >= 10)
+        setDuplicateArtworkKeys(new Set())
+        setAddError('')
+        clearNoteDraft(item.id)
+        setRemovingItemId(null)
+        setItemSuccess('Artwork removed.')
+      }
+    } catch (reason) {
+      if (isCurrentItemMutation(controller)) {
+        if (removalCommitted) {
+          if (isFrontendError(reason) && reason.code === 'EXHIBITION_NOT_FOUND') {
+            handleItemMutationError(reason, item.id)
+          } else {
+            setRemovingItemId(null)
+            setItemError('The artwork was removed, but the artwork list could not be refreshed and may be stale.')
+          }
+        } else {
+          handleItemMutationError(reason, item.id)
+        }
+      }
+    } finally {
+      if (isCurrentItemMutation(controller)) setItemMutation(null)
+    }
+  }
+
   return (
     <section className="artwork-search-page">
       <div className="page-heading editor-heading">
@@ -209,21 +417,44 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       </nav>
       <section className="artwork-search-section" aria-labelledby="current-artworks-heading">
         <h2 id="current-artworks-heading">Current artworks ({currentExhibition.items.length}/10)</h2>
+        {isReadOnly && <p className="form-alert" role="status">This exhibition is published and read-only.</p>}
+        {itemError && <p className="form-alert" role="alert">{itemError}</p>}
+        {itemSuccess && <p className="form-success" role="status">{itemSuccess}</p>}
         {currentExhibition.items.length === 0 ? (
           <p className="section-copy">No artworks have been added yet.</p>
         ) : (
-          <ol className="current-artwork-list">
+          <ol className="current-artwork-list current-artwork-list--curation">
             {currentExhibition.items.map((item) => (
-              <li key={item.id}>
-                <span>{item.position}.</span> {item.artwork.title}
-              </li>
+              <CurrentArtworkItem
+                key={item.id}
+                item={item}
+                itemCount={currentExhibition.items.length}
+                note={noteValue(item)}
+                noteError={noteErrors[item.id]}
+                isReadOnly={isReadOnly}
+                isBusy={itemMutationInProgress}
+                activeMutationKind={
+                  itemMutation?.itemId === item.id ? itemMutation.kind : null
+                }
+                isConfirmingRemoval={removingItemId === item.id}
+                onNoteChange={changeNote}
+                onSaveNote={saveNote}
+                onMove={moveItem}
+                onRequestRemoval={requestRemoval}
+                onRemove={removeItem}
+                onCancelRemoval={cancelRemoval}
+                removeButtonRef={(button) => {
+                  if (button) removeButtonRefs.current.set(item.id, button)
+                  else removeButtonRefs.current.delete(item.id)
+                }}
+                confirmRemovalButtonRef={confirmRemovalButtonRef}
+              />
             ))}
           </ol>
         )}
       </section>
       <section className="artwork-search-section" aria-labelledby="museum-search-heading">
         <h2 id="museum-search-heading">Search museum collection</h2>
-        {isReadOnly && <p className="form-alert" role="status">This exhibition is published and read-only.</p>}
         {atCapacity && <p className="form-alert" role="status">This exhibition has reached its 10-artwork limit.</p>}
         {addError && <p className="form-alert" role="alert">{addError}</p>}
         <form className="museum-search-form" onSubmit={submitSearch} noValidate aria-busy={searching}>
@@ -254,6 +485,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           isReadOnly={isReadOnly}
           atCapacity={atCapacity}
           addingExternalId={addingExternalId}
+          itemMutationInProgress={itemMutationInProgress}
           isAlreadyAdded={(artwork) => {
             const key = artworkKey(artwork)
             return committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)
@@ -261,6 +493,119 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         />
       </section>
     </section>
+  )
+}
+
+function CurrentArtworkItem({
+  item,
+  itemCount,
+  note,
+  noteError,
+  isReadOnly,
+  isBusy,
+  activeMutationKind,
+  isConfirmingRemoval,
+  onNoteChange,
+  onSaveNote,
+  onMove,
+  onRequestRemoval,
+  onRemove,
+  onCancelRemoval,
+  removeButtonRef,
+  confirmRemovalButtonRef,
+}: {
+  item: ExhibitionItem
+  itemCount: number
+  note: string
+  noteError?: string
+  isReadOnly: boolean
+  isBusy: boolean
+  activeMutationKind: ItemMutationKind | null
+  isConfirmingRemoval: boolean
+  onNoteChange: (itemId: number, value: string) => void
+  onSaveNote: (item: ExhibitionItem, value?: string) => void
+  onMove: (item: ExhibitionItem, direction: 'up' | 'down') => void
+  onRequestRemoval: (itemId: number) => void
+  onRemove: (item: ExhibitionItem) => void
+  onCancelRemoval: () => void
+  removeButtonRef: (button: HTMLButtonElement | null) => void
+  confirmRemovalButtonRef: React.RefObject<HTMLButtonElement | null>
+}) {
+  const noteId = `curatorial-note-${item.id}`
+  const noteErrorId = `${noteId}-error`
+  const disabled = isReadOnly || isBusy
+  const isSaving = activeMutationKind === 'note'
+  const isMovingUp = activeMutationKind === 'move-up'
+  const isMovingDown = activeMutationKind === 'move-down'
+  const isRemoving = activeMutationKind === 'remove'
+  const canClearNote = note.length > 0 || item.curatorialNote !== null
+
+  function submitNote(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    onSaveNote(item)
+  }
+
+  return (
+    <li className="current-artwork-item">
+      <article aria-labelledby={`artwork-item-${item.id}-title`}>
+        <div className="current-artwork-item__summary">
+          {item.artwork.thumbnailUrl ? (
+            <img src={item.artwork.thumbnailUrl} alt={`Thumbnail of ${item.artwork.title}`} />
+          ) : (
+            <div className="current-artwork-item__image-placeholder" role="img" aria-label={`No thumbnail available for ${item.artwork.title}`} />
+          )}
+          <div>
+            <p className="current-artwork-item__position">Artwork {item.position} of {itemCount}</p>
+            <h3 id={`artwork-item-${item.id}-title`}>{item.artwork.title}</h3>
+            <p>{item.artwork.artistDisplay || 'Artist unknown'}</p>
+          </div>
+        </div>
+        <form className="curatorial-note-form" onSubmit={submitNote} aria-busy={isSaving}>
+          <label htmlFor={noteId}>Curatorial note for {item.artwork.title}</label>
+          <textarea
+            id={noteId}
+            value={note}
+            onChange={(event) => onNoteChange(item.id, event.target.value)}
+            maxLength={MAXIMUM_CURATORIAL_NOTE_LENGTH + 1}
+            disabled={disabled}
+            aria-invalid={Boolean(noteError)}
+            aria-describedby={noteError ? noteErrorId : undefined}
+          />
+          {noteError && <p className="field-error" id={noteErrorId}>{noteError}</p>}
+          <div className="current-artwork-item__actions">
+            <button className="button button-secondary" type="submit" disabled={disabled}>
+              {isSaving ? 'Saving…' : 'Save note'}
+            </button>
+            <button className="button button-secondary" type="button" disabled={disabled || !canClearNote} onClick={() => onSaveNote(item, '')}>
+              Clear note
+            </button>
+          </div>
+        </form>
+        <div className="current-artwork-item__actions">
+          <button aria-label={isMovingUp ? `Moving ${item.artwork.title} up` : `Move ${item.artwork.title} up`} className="button button-secondary" type="button" disabled={disabled || item.position === 1} onClick={() => onMove(item, 'up')}>
+            {isMovingUp ? 'Moving…' : 'Move up'}
+          </button>
+          <button aria-label={isMovingDown ? `Moving ${item.artwork.title} down` : `Move ${item.artwork.title} down`} className="button button-secondary" type="button" disabled={disabled || item.position === itemCount} onClick={() => onMove(item, 'down')}>
+            {isMovingDown ? 'Moving…' : 'Move down'}
+          </button>
+          {!isConfirmingRemoval ? (
+            <button aria-label={`Remove ${item.artwork.title} from exhibition`} ref={removeButtonRef} className="button button-danger" type="button" disabled={disabled} onClick={() => onRequestRemoval(item.id)}>
+              Remove artwork
+            </button>
+          ) : (
+            <div className="item-removal-confirmation" role="alert">
+              <p>Remove {item.artwork.title} from this exhibition? This cannot be undone.</p>
+              <button aria-label={isRemoving ? `Removing ${item.artwork.title}` : `Confirm removal of ${item.artwork.title}`} ref={confirmRemovalButtonRef} className="button button-danger" type="button" disabled={isBusy} onClick={() => onRemove(item)}>
+                {isRemoving ? 'Removing…' : 'Confirm removal'}
+              </button>
+              <button aria-label={`Keep ${item.artwork.title} in exhibition`} className="button button-secondary" type="button" disabled={isBusy} onClick={onCancelRemoval}>
+                Keep artwork
+              </button>
+            </div>
+          )}
+        </div>
+      </article>
+    </li>
   )
 }
 
@@ -273,6 +618,7 @@ function SearchContent({
   isReadOnly,
   atCapacity,
   addingExternalId,
+  itemMutationInProgress,
   isAlreadyAdded,
 }: {
   results: MuseumArtworkSearchPage | null
@@ -283,6 +629,7 @@ function SearchContent({
   isReadOnly: boolean
   atCapacity: boolean
   addingExternalId: string | null
+  itemMutationInProgress: boolean
   isAlreadyAdded: (artwork: MuseumArtworkSearchResult) => boolean
 }) {
   if (searching && !results) return <LoadingState label="Searching the museum collection…" />
@@ -309,7 +656,7 @@ function SearchContent({
       <div className="museum-results__grid">
         {results.items.map((artwork) => {
           const alreadyAdded = isAlreadyAdded(artwork)
-          const disabled = alreadyAdded || isReadOnly || atCapacity || addingExternalId !== null
+          const disabled = alreadyAdded || isReadOnly || atCapacity || addingExternalId !== null || itemMutationInProgress
           return (
             <article className="museum-artwork-card" key={artworkKey(artwork)}>
               {artwork.thumbnailUrl ? (
@@ -385,6 +732,22 @@ function withAddedItem(exhibition: ExhibitionDetail, addedItem: ExhibitionDetail
   return {
     ...exhibition,
     items: [...exhibition.items, addedItem].sort((first, second) => first.position - second.position),
+  }
+}
+
+function withReplacedItem(exhibition: ExhibitionDetail, updatedItem: ExhibitionItem): ExhibitionDetail {
+  return {
+    ...exhibition,
+    items: exhibition.items
+      .map((item) => item.id === updatedItem.id ? updatedItem : item)
+      .sort((first, second) => first.position - second.position),
+  }
+}
+
+function withItems(exhibition: ExhibitionDetail, items: ExhibitionItem[]): ExhibitionDetail {
+  return {
+    ...exhibition,
+    items: [...items].sort((first, second) => first.position - second.position),
   }
 }
 
