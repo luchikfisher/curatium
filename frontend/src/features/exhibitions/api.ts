@@ -99,6 +99,11 @@ function parseItem(value: unknown): ExhibitionItem {
   }
 }
 
+function parseItems(value: unknown): ExhibitionItem[] {
+  if (!Array.isArray(value)) throw new TypeError('Expected an array of exhibition items')
+  return value.map(parseItem)
+}
+
 function parseMuseumArtwork(value: unknown): MuseumArtworkSearchResult {
   if (
     !isRecord(value) ||
@@ -292,6 +297,64 @@ export async function addExhibitionArtwork(
     )
   }
   return item
+}
+
+export async function updateExhibitionItemNote(
+  exhibitionId: number,
+  itemId: number,
+  curatorialNote: string | null,
+  signal?: AbortSignal,
+): Promise<ExhibitionItem> {
+  const item = await apiRequest(
+    `/api/exhibitions/${exhibitionId}/items/${itemId}`,
+    {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ curatorialNote }),
+    },
+    parseItem,
+  )
+  if (item === undefined) {
+    throw new FrontendError(
+      'The server returned an empty curatorial-note response.',
+      'malformed',
+      204,
+    )
+  }
+  return item
+}
+
+export async function moveExhibitionItem(
+  exhibitionId: number,
+  itemId: number,
+  direction: 'up' | 'down',
+  signal?: AbortSignal,
+): Promise<ExhibitionItem[]> {
+  const items = await apiRequest(
+    `/api/exhibitions/${exhibitionId}/items/${itemId}/move-${direction}`,
+    { method: 'POST', signal },
+    parseItems,
+  )
+  if (items === undefined) {
+    throw new FrontendError(
+      'The server returned an empty item-order response.',
+      'malformed',
+      204,
+    )
+  }
+  return items
+}
+
+export async function removeExhibitionItem(
+  exhibitionId: number,
+  itemId: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await apiRequest(
+    `/api/exhibitions/${exhibitionId}/items/${itemId}`,
+    { method: 'DELETE', signal },
+  )
 }
 
 export async function deleteDraftExhibition(
