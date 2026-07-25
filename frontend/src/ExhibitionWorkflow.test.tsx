@@ -52,8 +52,20 @@ afterEach(() => {
 describe('exhibition create and edit workflow', () => {
   it('creates an exhibition and opens its edit route', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(respond(detail({ id: 42, title: 'Night works' }), 201))
-      .mockResolvedValueOnce(respond(detail({ id: 42, title: 'Night works' })))
+      .mockResolvedValueOnce(respond(detail({
+        id: 42,
+        title: 'Night works',
+        summary: undefined,
+        introduction: undefined,
+        coverArtworkId: undefined,
+      }), 201))
+      .mockResolvedValueOnce(respond(detail({
+        id: 42,
+        title: 'Night works',
+        summary: undefined,
+        introduction: undefined,
+        coverArtworkId: undefined,
+      })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/new')
 
@@ -66,6 +78,20 @@ describe('exhibition create and edit workflow', () => {
       method: 'POST',
       body: JSON.stringify({ title: 'Night works', summary: '', introduction: '' }),
     }))
+  })
+
+  it('loads an uncovered draft when nullable metadata is omitted', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({
+      title: 'Uncovered draft',
+      summary: undefined,
+      introduction: undefined,
+      coverArtworkId: undefined,
+    }))))
+    renderAt('/exhibitions/1/edit')
+
+    expect(await screen.findByLabelText(/title/i)).toHaveValue('Uncovered draft')
+    expect(screen.getByLabelText(/summary/i)).toHaveValue('')
+    expect(screen.getByLabelText(/introduction/i)).toHaveValue('')
   })
 
   it('shows backend field errors beside the form field', async () => {

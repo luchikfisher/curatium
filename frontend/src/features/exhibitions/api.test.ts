@@ -29,6 +29,21 @@ describe('listCuratorExhibitions', () => {
 
     expect(error).toMatchObject({ kind: 'malformed', status: 200 })
   })
+
+  it('normalizes omitted nullable summary fields to null', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      id: 1,
+      title: 'Uncovered draft',
+      status: 'DRAFT',
+      artworkCount: 0,
+      updatedAt: '2026-07-18T12:00:00Z',
+    }]), { status: 200 })))
+
+    await expect(listCuratorExhibitions()).resolves.toEqual([expect.objectContaining({
+      summary: null,
+      coverImageUrl: null,
+    })])
+  })
 })
 
 describe('exhibition detail requests', () => {
@@ -50,7 +65,25 @@ describe('exhibition detail requests', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('parses the backend item shape and rejects invalid artwork fields', async () => {
+  it('normalizes omitted nullable fields in a newly created draft', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 8,
+      title: 'New draft',
+      status: 'DRAFT',
+      items: [],
+      createdAt: '2026-07-18T12:00:00Z',
+      updatedAt: '2026-07-18T12:00:00Z',
+    }), { status: 201 })))
+
+    await expect(createExhibition({ title: 'New draft', summary: '', introduction: '' }))
+      .resolves.toMatchObject({
+        summary: null,
+        introduction: null,
+        coverArtworkId: null,
+      })
+  })
+
+  it('normalizes omitted item and artwork fields, while rejecting invalid values', async () => {
     const validDetail = {
       id: 1,
       title: 'Lines of Light',
@@ -80,6 +113,24 @@ describe('exhibition detail requests', () => {
       createdAt: '2026-07-18T12:00:00Z',
       updatedAt: '2026-07-18T12:00:00Z',
     }
+    const omittedNullableDetail = {
+      ...validDetail,
+      summary: undefined,
+      introduction: undefined,
+      coverArtworkId: undefined,
+      items: [{
+        ...validDetail.items[0],
+        curatorialNote: undefined,
+        artwork: {
+          ...validDetail.items[0].artwork,
+          artistDisplay: undefined,
+          dateDisplay: undefined,
+          mediumDisplay: undefined,
+          sourceUrl: undefined,
+          creditLine: undefined,
+        },
+      }],
+    }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(validDetail), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -90,6 +141,8 @@ describe('exhibition detail requests', () => {
         ...validDetail,
         items: [{ ...validDetail.items[0], artwork: { ...validDetail.items[0].artwork, source: 'UNKNOWN_SOURCE' } }],
       }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(omittedNullableDetail), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...validDetail, summary: 123 }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(getExhibition(1)).resolves.toMatchObject({
@@ -97,6 +150,22 @@ describe('exhibition detail requests', () => {
       items: [{ artwork: { source: 'ART_INSTITUTE_OF_CHICAGO' } }],
     })
     await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
+    await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
+    await expect(getExhibition(1)).resolves.toMatchObject({
+      summary: null,
+      introduction: null,
+      coverArtworkId: null,
+      items: [{
+        curatorialNote: null,
+        artwork: {
+          artistDisplay: null,
+          dateDisplay: null,
+          mediumDisplay: null,
+          sourceUrl: null,
+          creditLine: null,
+        },
+      }],
+    })
     await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
   })
 })
