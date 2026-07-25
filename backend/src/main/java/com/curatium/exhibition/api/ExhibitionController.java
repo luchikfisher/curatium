@@ -49,6 +49,40 @@ public class ExhibitionController {
         return exhibitionService.addArtwork(exhibitionId, request);
     }
 
+    @PutMapping("/{exhibitionId}/items/{itemId}")
+    public ExhibitionItemResponse updateCuratorialNote(
+            @PathVariable long exhibitionId,
+            @PathVariable long itemId,
+            @Valid @RequestBody UpdateCuratorialNoteRequest request
+    ) {
+        return exhibitionService.updateCuratorialNote(exhibitionId, itemId, request);
+    }
+
+    @DeleteMapping("/{exhibitionId}/items/{itemId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeExhibitionItem(
+            @PathVariable long exhibitionId,
+            @PathVariable long itemId
+    ) {
+        exhibitionService.removeExhibitionItem(exhibitionId, itemId);
+    }
+
+    @PostMapping("/{exhibitionId}/items/{itemId}/move-up")
+    public List<ExhibitionItemResponse> moveExhibitionItemUp(
+            @PathVariable long exhibitionId,
+            @PathVariable long itemId
+    ) {
+        return exhibitionService.moveExhibitionItemUp(exhibitionId, itemId);
+    }
+
+    @PostMapping("/{exhibitionId}/items/{itemId}/move-down")
+    public List<ExhibitionItemResponse> moveExhibitionItemDown(
+            @PathVariable long exhibitionId,
+            @PathVariable long itemId
+    ) {
+        return exhibitionService.moveExhibitionItemDown(exhibitionId, itemId);
+    }
+
     @PutMapping("/{exhibitionId}")
     public ExhibitionDetailResponse updateExhibition(
             @PathVariable long exhibitionId,

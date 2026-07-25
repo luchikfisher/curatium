@@ -62,4 +62,12 @@ public class ExhibitionItem {
     ) {
         return new ExhibitionItem(exhibition, artwork, position);
     }
+
+    public void updateCuratorialNote(String curatorialNote) {
+        this.curatorialNote = curatorialNote;
+    }
+
+    public void moveToPosition(int position) {
+        this.position = position;
+    }
 }

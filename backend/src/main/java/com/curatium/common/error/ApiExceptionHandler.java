@@ -4,6 +4,7 @@ import com.curatium.artwork.application.ArtworkNotImportableException;
 import com.curatium.artwork.application.InvalidMuseumSearchRequestException;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
 import com.curatium.exhibition.application.ExhibitionNotEditableException;
+import com.curatium.exhibition.application.ExhibitionItemNotFoundException;
 import com.curatium.exhibition.application.ExhibitionCapacityExceededException;
 import com.curatium.exhibition.application.ExhibitionNotFoundException;
 import com.curatium.exhibition.application.DuplicateExhibitionArtworkException;
@@ -142,6 +143,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return response(
                 HttpStatus.NOT_FOUND,
                 "EXHIBITION_NOT_FOUND",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ExhibitionItemNotFoundException.class)
+    public ResponseEntity<Object> handleExhibitionItemNotFound(
+            ExhibitionItemNotFoundException exception
+    ) {
+        return response(
+                HttpStatus.NOT_FOUND,
+                "EXHIBITION_ITEM_NOT_FOUND",
                 exception.getMessage(),
                 List.of()
         );
