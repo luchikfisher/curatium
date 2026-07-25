@@ -101,6 +101,35 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .editor-state { max-width: 48rem; margin: 5rem 0 6rem; text-align: left; }
 .editor-state p { margin-inline: 0; }
 .editor-state .text-link { display: inline-block; margin-top: 1.25rem; }
+.artwork-search-page { padding-bottom: 6rem; }
+.artwork-search-section { padding: 2rem 0; border-top: 1px solid var(--line); }
+.artwork-search-section h2 { margin: 0 0 1.5rem; font-size: 1.8rem; }
+.section-copy { margin: 0; color: var(--muted); line-height: 1.5; }
+.current-artwork-list { display: grid; gap: .6rem; margin: 0; padding-left: 1.5rem; }
+.current-artwork-list li { color: var(--muted); line-height: 1.5; }
+.current-artwork-list li span { color: var(--ink); font-variant-numeric: tabular-nums; }
+.museum-search-form { display: grid; gap: .6rem; max-width: 42rem; }
+.museum-search-form label { font-weight: 700; }
+.museum-search-form__controls { display: flex; gap: .75rem; }
+.museum-search-form input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 0; padding: .75rem; background: var(--paper); color: var(--ink); font: inherit; }
+.museum-search-form input[aria-invalid="true"] { border-color: #a63425; }
+.search-error { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: 1.5rem; border-left: 3px solid #a63425; padding: .75rem 1rem; background: #fff3f0; color: #69231b; }
+.search-error p { flex: 1 1 20rem; margin: 0; line-height: 1.5; }
+.search-error .button-secondary { margin: 0; }
+.museum-results { margin-top: 2rem; }
+.results-count { margin: 0 0 1rem; color: var(--muted); }
+.museum-results__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1.5rem; }
+.museum-artwork-card { overflow: hidden; border: 1px solid var(--line); background: var(--paper); }
+.museum-artwork-card__image { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #dedbd3; }
+.museum-artwork-card__body { display: grid; gap: .55rem; padding: 1.25rem; }
+.museum-artwork-card__body h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 400; line-height: 1.2; }
+.museum-artwork-card__body p { margin: 0; color: var(--muted); line-height: 1.45; }
+.museum-artwork-card__body .button { justify-self: start; margin-top: .5rem; }
+.artwork-card__status, .artwork-card__added { font-size: .85rem; font-weight: 700; }
+.artwork-card__added { color: #27623c !important; }
+.search-pagination { display: flex; gap: .75rem; margin-top: 1.5rem; }
+.search-pagination .button-secondary { margin: 0; }
+.button:disabled { cursor: not-allowed; opacity: .58; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -112,6 +141,8 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
   .page-heading--with-action .button { align-self: flex-start; }
   .content-section { padding-bottom: 4rem; }
   .editor-page { padding-bottom: 4rem; }
+  .artwork-search-page { padding-bottom: 4rem; }
+  .museum-search-form__controls { align-items: stretch; flex-direction: column; }
   .state-panel { padding: 2rem 1rem; }
 }
 
