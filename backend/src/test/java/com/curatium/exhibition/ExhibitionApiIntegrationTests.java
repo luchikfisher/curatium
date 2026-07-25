@@ -27,6 +27,7 @@ import jakarta.persistence.LockModeType;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -804,6 +805,10 @@ class ExhibitionApiIntegrationTests {
         mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", emptyExhibitionId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+        mockMvc.perform(get("/api/exhibitions/{exhibitionId}", emptyExhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.publishedAt").isEmpty());
 
         long noCoverExhibitionId = insertExhibition("No cover publication");
         long noCoverArtworkId = insertArtwork("no-cover");
@@ -833,10 +838,15 @@ class ExhibitionApiIntegrationTests {
                 "SELECT updated_at::text FROM exhibitions WHERE id = ?", String.class, exhibitionId
         );
 
-        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", exhibitionId))
+        JsonNode publishedExhibition = readResponse(mockMvc.perform(
+                        post("/api/exhibitions/{exhibitionId}/publish", exhibitionId)
+                )
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PUBLISHED"))
-                .andExpect(jsonPath("$.coverArtworkId").value(artworkId));
+                .andExpect(jsonPath("$.publishedAt").isNotEmpty())
+                .andExpect(jsonPath("$.coverArtworkId").value(artworkId))
+                .andReturn());
+        String publishedAt = publishedExhibition.get("publishedAt").asString();
         assertEquals("PUBLISHED", jdbcTemplate.queryForObject(
                 "SELECT status FROM exhibitions WHERE id = ?", String.class, exhibitionId
         ));
@@ -847,6 +857,10 @@ class ExhibitionApiIntegrationTests {
         mockMvc.perform(post("/api/exhibitions/{exhibitionId}/publish", exhibitionId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+        mockMvc.perform(get("/api/exhibitions/{exhibitionId}", exhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PUBLISHED"))
+                .andExpect(jsonPath("$.publishedAt").value(publishedAt));
     }
 
     @Test
@@ -876,6 +890,8 @@ class ExhibitionApiIntegrationTests {
                 )
                 .andExpect(status().isOk())
                 .andReturn());
+        assertTrue(publishedExhibition.path("publishedAt").isTextual());
+        String firstPublishedAt = publishedExhibition.get("publishedAt").asString();
 
         JsonNode unpublishedExhibition = readResponse(mockMvc.perform(
                         post("/api/exhibitions/{exhibitionId}/unpublish", exhibitionId)
@@ -883,6 +899,10 @@ class ExhibitionApiIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn());
+        assertTrue(unpublishedExhibition.path("publishedAt").isNull());
+        assertNull(jdbcTemplate.queryForObject(
+                "SELECT published_at::text FROM exhibitions WHERE id = ?", String.class, exhibitionId
+        ));
         assertNotEquals(
                 publishedExhibition.get("updatedAt").asString(),
                 unpublishedExhibition.get("updatedAt").asString()
@@ -937,6 +957,24 @@ class ExhibitionApiIntegrationTests {
         mockMvc.perform(post("/api/exhibitions/{exhibitionId}/unpublish", exhibitionId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_PUBLICATION_STATE"));
+        mockMvc.perform(get("/api/exhibitions/{exhibitionId}", exhibitionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.publishedAt").isEmpty());
+
+        JsonNode republishedExhibition = readResponse(mockMvc.perform(
+                        post("/api/exhibitions/{exhibitionId}/publish", exhibitionId)
+                )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PUBLISHED"))
+                .andExpect(jsonPath("$.publishedAt").isNotEmpty())
+                .andReturn());
+        Instant firstPublicationTime = Instant.parse(firstPublishedAt);
+        Instant republishedAt = Instant.parse(republishedExhibition.get("publishedAt").asString());
+        assertTrue(republishedAt.isAfter(firstPublicationTime));
+        assertTrue(jdbcTemplate.queryForObject(
+                "SELECT published_at IS NOT NULL FROM exhibitions WHERE id = ?", Boolean.class, exhibitionId
+        ));
     }
 
     @Test
@@ -951,7 +989,7 @@ class ExhibitionApiIntegrationTests {
                 "UPDATE exhibition_items SET curatorial_note = ? WHERE id = ?", "First public note", firstItemId
         );
         jdbcTemplate.update(
-                "UPDATE exhibitions SET summary = ?, introduction = ?, cover_artwork_id = ?, status = 'PUBLISHED' WHERE id = ?",
+                "UPDATE exhibitions SET summary = ?, introduction = ?, cover_artwork_id = ?, status = 'PUBLISHED', published_at = CURRENT_TIMESTAMP WHERE id = ?",
                 "Published summary", "Published introduction", secondArtworkId, publishedExhibitionId
         );
         DETAIL_STATUS.set(503);
@@ -968,6 +1006,7 @@ class ExhibitionApiIntegrationTests {
                 .andExpect(jsonPath("$.title").value("Published exhibition"))
                 .andExpect(jsonPath("$.summary").value("Published summary"))
                 .andExpect(jsonPath("$.introduction").value("Published introduction"))
+                .andExpect(jsonPath("$.publishedAt").isNotEmpty())
                 .andExpect(jsonPath("$.coverArtworkId").value(secondArtworkId))
                 .andExpect(jsonPath("$.items[0].id").value(firstItemId))
                 .andExpect(jsonPath("$.items[0].position").value(1))

@@ -10,6 +10,7 @@ public record ExhibitionDetailResponse(
         String summary,
         String introduction,
         ExhibitionStatus status,
+        Instant publishedAt,
         Long coverArtworkId,
         List<ExhibitionItemResponse> items,
         Instant createdAt,
