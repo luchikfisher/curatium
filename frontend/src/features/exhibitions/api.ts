@@ -48,6 +48,18 @@ function parseNullableString(value: unknown): string | null {
   throw new TypeError('Invalid nullable string')
 }
 
+function parseNullableTimestamp(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (
+    typeof value === 'string' &&
+    /(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    !Number.isNaN(Date.parse(value))
+  ) {
+    return value
+  }
+  throw new TypeError('Invalid nullable timestamp')
+}
+
 function parseNullableNumber(value: unknown): number | null {
   if (value === undefined || value === null) return null
   if (typeof value === 'number') return value
@@ -165,6 +177,7 @@ function parseDetail(value: unknown): ExhibitionDetail {
     summary: parseNullableString(value.summary),
     introduction: parseNullableString(value.introduction),
     status: value.status,
+    publishedAt: parseNullableTimestamp(value.publishedAt),
     coverArtworkId: parseNullableNumber(value.coverArtworkId),
     items: value.items.map(parseItem),
     createdAt: value.createdAt,

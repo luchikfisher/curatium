@@ -3,6 +3,7 @@ import { AppLayout } from './components/AppLayout'
 import { CuratorExhibitionsPage } from './pages/CuratorExhibitionsPage'
 import { ArtworkSearchPage } from './pages/ArtworkSearchPage'
 import { EditExhibitionPage } from './pages/EditExhibitionPage'
+import { ExhibitionPreviewPage } from './pages/ExhibitionPreviewPage'
 import { NewExhibitionPage } from './pages/NewExhibitionPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
@@ -28,7 +29,7 @@ export const appRouter = createBrowserRouter([
       },
       {
         path: '/exhibitions/:id/preview',
-        element: <PlaceholderPage eyebrow="Draft preview" title="Preview exhibition" description="The gallery preview belongs to a later phase. Draft previews will remain separate from public visits." backTo="/exhibitions" />,
+        element: <ExhibitionPreviewPage />,
       },
       {
         path: '/visit/:id',

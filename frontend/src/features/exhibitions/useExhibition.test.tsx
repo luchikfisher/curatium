@@ -9,6 +9,7 @@ const detail: ExhibitionDetail = {
   summary: null,
   introduction: null,
   status: 'DRAFT',
+  publishedAt: null,
   coverArtworkId: null,
   items: [],
   createdAt: '2026-07-18T12:00:00Z',
