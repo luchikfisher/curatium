@@ -16,6 +16,8 @@ public interface ExhibitionItemRepository extends JpaRepository<ExhibitionItem, 
 
     Optional<ExhibitionItem> findByIdAndExhibitionId(long itemId, long exhibitionId);
 
+    Optional<ExhibitionItem> findByExhibitionIdAndArtworkId(long exhibitionId, long artworkId);
+
     List<ExhibitionItem> findByExhibitionIdOrderByPositionAsc(long exhibitionId);
 
     @Modifying

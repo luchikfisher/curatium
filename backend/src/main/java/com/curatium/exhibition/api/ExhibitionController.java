@@ -91,6 +91,29 @@ public class ExhibitionController {
         return exhibitionService.updateExhibition(exhibitionId, request);
     }
 
+    @PutMapping("/{exhibitionId}/cover")
+    public ExhibitionDetailResponse selectCoverArtwork(
+            @PathVariable long exhibitionId,
+            @Valid @RequestBody CoverArtworkRequest request
+    ) {
+        return exhibitionService.selectCoverArtwork(exhibitionId, request);
+    }
+
+    @DeleteMapping("/{exhibitionId}/cover")
+    public ExhibitionDetailResponse clearCoverArtwork(@PathVariable long exhibitionId) {
+        return exhibitionService.clearCoverArtwork(exhibitionId);
+    }
+
+    @PostMapping("/{exhibitionId}/publish")
+    public ExhibitionDetailResponse publishExhibition(@PathVariable long exhibitionId) {
+        return exhibitionService.publishExhibition(exhibitionId);
+    }
+
+    @PostMapping("/{exhibitionId}/unpublish")
+    public ExhibitionDetailResponse unpublishExhibition(@PathVariable long exhibitionId) {
+        return exhibitionService.unpublishExhibition(exhibitionId);
+    }
+
     @DeleteMapping("/{exhibitionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteExhibition(@PathVariable long exhibitionId) {

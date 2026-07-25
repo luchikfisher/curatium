@@ -4,15 +4,20 @@ import com.curatium.artwork.application.ArtworkImportService;
 import com.curatium.artwork.application.ArtworkImportPreparation;
 import com.curatium.artwork.domain.Artwork;
 import com.curatium.exhibition.api.AddExhibitionItemRequest;
+import com.curatium.exhibition.api.CoverArtworkRequest;
 import com.curatium.exhibition.api.CreateExhibitionRequest;
 import com.curatium.exhibition.api.ExhibitionDetailResponse;
 import com.curatium.exhibition.api.ExhibitionArtworkResponse;
 import com.curatium.exhibition.api.ExhibitionItemResponse;
 import com.curatium.exhibition.api.ExhibitionSummaryResponse;
+import com.curatium.exhibition.api.PublicExhibitionArtworkResponse;
+import com.curatium.exhibition.api.PublicExhibitionDetailResponse;
+import com.curatium.exhibition.api.PublicExhibitionItemResponse;
 import com.curatium.exhibition.api.UpdateCuratorialNoteRequest;
 import com.curatium.exhibition.api.UpdateExhibitionRequest;
 import com.curatium.exhibition.domain.Exhibition;
 import com.curatium.exhibition.domain.ExhibitionItem;
+import com.curatium.exhibition.domain.ExhibitionStatus;
 import com.curatium.exhibition.persistence.ExhibitionItemRepository;
 import com.curatium.exhibition.persistence.ExhibitionRepository;
 import java.util.List;
@@ -56,6 +61,20 @@ public class ExhibitionService {
         return toDetailResponse(getRequiredExhibition(exhibitionId));
     }
 
+    @Transactional(readOnly = true)
+    public List<ExhibitionSummaryResponse> listPublishedExhibitions() {
+        return exhibitionRepository.findAllByStatusOrderByUpdatedAtDesc(ExhibitionStatus.PUBLISHED).stream()
+                .map(this::toSummaryResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PublicExhibitionDetailResponse getPublishedExhibition(long exhibitionId) {
+        Exhibition exhibition = exhibitionRepository.findByIdAndStatus(exhibitionId, ExhibitionStatus.PUBLISHED)
+                .orElseThrow(() -> new ExhibitionNotFoundException(exhibitionId));
+        return toPublicDetailResponse(exhibition);
+    }
+
     @Transactional
     public ExhibitionDetailResponse updateExhibition(long exhibitionId, UpdateExhibitionRequest request) {
         Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
@@ -70,9 +89,54 @@ public class ExhibitionService {
 
     @Transactional
     public void deleteDraftExhibition(long exhibitionId) {
-        Exhibition exhibition = getRequiredExhibition(exhibitionId);
+        Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
         requireDraft(exhibition);
         exhibitionRepository.delete(exhibition);
+    }
+
+    public ExhibitionDetailResponse selectCoverArtwork(long exhibitionId, CoverArtworkRequest request) {
+        return transactionTemplate.execute(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            requireDraft(exhibition);
+
+            ExhibitionItem coverItem = exhibitionItemRepository
+                    .findByExhibitionIdAndArtworkId(exhibitionId, request.artworkId())
+                    .orElseThrow(() -> new InvalidCoverArtworkException(exhibitionId));
+            exhibition.selectCoverArtwork(coverItem.getArtwork());
+            return toDetailResponse(exhibitionRepository.saveAndFlush(exhibition));
+        });
+    }
+
+    public ExhibitionDetailResponse clearCoverArtwork(long exhibitionId) {
+        return transactionTemplate.execute(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            requireDraft(exhibition);
+            exhibition.clearCoverArtwork();
+            return toDetailResponse(exhibitionRepository.saveAndFlush(exhibition));
+        });
+    }
+
+    public ExhibitionDetailResponse publishExhibition(long exhibitionId) {
+        return transactionTemplate.execute(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            if (exhibition.isPublished()) {
+                throw new InvalidPublicationStateException("The exhibition is already published.");
+            }
+            validatePublicationPrerequisites(exhibition);
+            exhibition.publish();
+            return toDetailResponse(exhibitionRepository.saveAndFlush(exhibition));
+        });
+    }
+
+    public ExhibitionDetailResponse unpublishExhibition(long exhibitionId) {
+        return transactionTemplate.execute(status -> {
+            Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
+            if (exhibition.isDraft()) {
+                throw new InvalidPublicationStateException("The exhibition is already a draft.");
+            }
+            exhibition.unpublish();
+            return toDetailResponse(exhibitionRepository.saveAndFlush(exhibition));
+        });
     }
 
     public ExhibitionItemResponse addArtwork(long exhibitionId, AddExhibitionItemRequest request) {
@@ -227,6 +291,24 @@ public class ExhibitionService {
         }
     }
 
+    private void validatePublicationPrerequisites(Exhibition exhibition) {
+        if (exhibition.getTitle().isBlank()) {
+            throw new InvalidPublicationStateException("A published exhibition must have a title.");
+        }
+        if (exhibitionItemRepository.countByExhibitionId(exhibition.getId()) == 0) {
+            throw new InvalidPublicationStateException("A published exhibition must include at least one artwork.");
+        }
+        Artwork coverArtwork = exhibition.getCoverArtwork();
+        if (coverArtwork == null) {
+            throw new InvalidPublicationStateException("A published exhibition must have a cover artwork.");
+        }
+        if (!exhibitionItemRepository.existsByExhibitionIdAndArtworkId(exhibition.getId(), coverArtwork.getId())) {
+            throw new InvalidPublicationStateException(
+                    "The cover artwork must be included in the exhibition."
+            );
+        }
+    }
+
     private String normalizeTitle(String title) {
         String normalizedTitle = title.trim();
         if (normalizedTitle.length() > 150) {
@@ -281,6 +363,40 @@ public class ExhibitionService {
                 toArtworkResponse(item.getArtwork()),
                 item.getPosition(),
                 item.getCuratorialNote()
+        );
+    }
+
+    private PublicExhibitionDetailResponse toPublicDetailResponse(Exhibition exhibition) {
+        Long coverArtworkId = exhibition.getCoverArtwork() == null ? null : exhibition.getCoverArtwork().getId();
+        List<PublicExhibitionItemResponse> items = exhibition.getItems().stream()
+                .map(this::toPublicItemResponse)
+                .toList();
+        return new PublicExhibitionDetailResponse(
+                exhibition.getId(),
+                exhibition.getTitle(),
+                exhibition.getSummary(),
+                exhibition.getIntroduction(),
+                coverArtworkId,
+                items
+        );
+    }
+
+    private PublicExhibitionItemResponse toPublicItemResponse(ExhibitionItem item) {
+        Artwork artwork = item.getArtwork();
+        return new PublicExhibitionItemResponse(
+                item.getId(),
+                item.getPosition(),
+                item.getCuratorialNote(),
+                new PublicExhibitionArtworkResponse(
+                        artwork.getId(),
+                        artwork.getTitle(),
+                        artwork.getArtistDisplay(),
+                        artwork.getDateDisplay(),
+                        artwork.getMediumDisplay(),
+                        artwork.getImageUrl(),
+                        artwork.getSourceUrl(),
+                        artwork.getCreditLine()
+                )
         );
     }
 

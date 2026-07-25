@@ -9,6 +9,8 @@ import com.curatium.exhibition.application.ExhibitionCapacityExceededException;
 import com.curatium.exhibition.application.ExhibitionNotFoundException;
 import com.curatium.exhibition.application.DuplicateExhibitionArtworkException;
 import com.curatium.exhibition.application.InvalidExhibitionRequestException;
+import com.curatium.exhibition.application.InvalidCoverArtworkException;
+import com.curatium.exhibition.application.InvalidPublicationStateException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
@@ -191,6 +193,26 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return response(
                 HttpStatus.CONFLICT,
                 "EXHIBITION_ARTWORK_LIMIT_REACHED",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(InvalidCoverArtworkException.class)
+    public ResponseEntity<Object> handleInvalidCoverArtwork(InvalidCoverArtworkException exception) {
+        return response(
+                HttpStatus.CONFLICT,
+                "INVALID_COVER_ARTWORK",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(InvalidPublicationStateException.class)
+    public ResponseEntity<Object> handleInvalidPublicationState(InvalidPublicationStateException exception) {
+        return response(
+                HttpStatus.CONFLICT,
+                "INVALID_PUBLICATION_STATE",
                 exception.getMessage(),
                 List.of()
         );
