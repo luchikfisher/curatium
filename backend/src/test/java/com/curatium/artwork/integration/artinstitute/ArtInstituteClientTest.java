@@ -62,7 +62,7 @@ class ArtInstituteClientTest {
                     """);
         });
 
-        MuseumArtworkSearchPage page = client.search(" night ", 2);
+        MuseumArtworkSearchPage page = client.search(" night ", 2, 20);
 
         assertEquals(2, page.page());
         assertEquals(20, page.pageSize());
@@ -82,7 +82,7 @@ class ArtInstituteClientTest {
 
         ArtInstituteIntegrationException exception = assertThrows(
                 ArtInstituteIntegrationException.class,
-                () -> client.search("night", 1)
+                () -> client.search("night", 1, 20)
         );
 
         assertEquals("The Art Institute of Chicago service is unavailable.", exception.getMessage());
@@ -102,7 +102,7 @@ class ArtInstituteClientTest {
 
         ArtInstituteIntegrationException exception = assertThrows(
                 ArtInstituteIntegrationException.class,
-                () -> client.search("night", 1)
+                () -> client.search("night", 1, 20)
         );
 
         assertEquals("The Art Institute of Chicago returned an unusable response.", exception.getMessage());
