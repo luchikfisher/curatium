@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -249,7 +249,7 @@ describe('museum artwork search and add flow', () => {
     expect(screen.queryByRole('button', { name: 'Add artwork' })).not.toBeInTheDocument()
   })
 
-  it('handles duplicate and capacity conflicts', async () => {
+  it('handles a duplicate conflict', async () => {
     const duplicateFetch = vi.fn()
       .mockResolvedValueOnce(respond(detail()))
       .mockResolvedValueOnce(respond(searchPage()))
@@ -262,19 +262,58 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
     expect(await screen.findByText('Nocturne is already in this exhibition.')).toBeInTheDocument()
     expect(screen.getByText('Already added')).toBeInTheDocument()
+  })
 
-    cleanup()
-    const capacityFetch = vi.fn()
-      .mockResolvedValueOnce(respond(detail()))
+  it('reloads committed exhibition items after a capacity conflict', async () => {
+    const initialItem = item('initial-artwork')
+    initialItem.artwork.title = 'Initially loaded artwork'
+    const committedItems = Array.from({ length: 10 }, (_, index) => {
+      const committedItem = item(`committed-${index + 1}`, index + 1)
+      committedItem.artwork.title = `Committed artwork ${index + 1}`
+      return committedItem
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [initialItem] })))
       .mockResolvedValueOnce(respond(searchPage()))
       .mockResolvedValueOnce(respond(error('EXHIBITION_ARTWORK_LIMIT_REACHED', 'At capacity.', 409), 409))
-    vi.stubGlobal('fetch', capacityFetch)
+      .mockResolvedValueOnce(respond(detail({ items: committedItems })))
+    vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
-    await userEvent.type(await loadSearchPage(), 'night')
+
+    const query = await loadSearchPage()
+    await userEvent.type(query, 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
 
     expect(await screen.findByText('This exhibition already has the maximum of 10 artworks.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Current artworks (10/10)' })).toBeInTheDocument()
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(10)
+    expect(screen.getByText(/Committed artwork 10/)).toBeInTheDocument()
+    expect(query).toHaveValue('night')
+    expect(screen.getByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add artwork' })).toBeDisabled()
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/exhibitions/1', expect.any(Object))
+  })
+
+  it('warns that committed items may be stale when a capacity refresh fails', async () => {
+    const initialItem = item('initial-artwork')
+    initialItem.artwork.title = 'Initially loaded artwork'
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [initialItem] })))
+      .mockResolvedValueOnce(respond(searchPage()))
+      .mockResolvedValueOnce(respond(error('EXHIBITION_ARTWORK_LIMIT_REACHED', 'At capacity.', 409), 409))
+      .mockRejectedValueOnce(new TypeError('Connection lost'))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.type(await loadSearchPage(), 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+
+    expect(await screen.findByText(/displayed artwork list could not be refreshed and may be stale/i)).toBeInTheDocument()
+    expect(screen.getByText('This exhibition has reached its 10-artwork limit.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
+    expect(screen.getByText(/Initially loaded artwork/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add artwork' })).toBeDisabled()
   })
 
@@ -375,5 +414,43 @@ describe('museum artwork search and add flow', () => {
     await waitFor(() => expect(addSignal?.aborted).toBe(true))
     expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
     expect(screen.queryByText(/problem occurred while adding/)).not.toBeInTheDocument()
+  })
+
+  it('aborts a capacity-conflict refresh when the artwork route changes', async () => {
+    let exhibitionOneRequests = 0
+    let refreshSignal: AbortSignal | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1') {
+        exhibitionOneRequests += 1
+        if (exhibitionOneRequests === 1) return Promise.resolve(respond(detail()))
+        refreshSignal = options?.signal as AbortSignal
+        return new Promise<Response>((_, reject) => {
+          refreshSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        })
+      }
+      if (path === '/api/museum/artworks?q=night&page=1&size=20') {
+        return Promise.resolve(respond(searchPage()))
+      }
+      if (path === '/api/exhibitions/1/items') {
+        return Promise.resolve(respond(error('EXHIBITION_ARTWORK_LIMIT_REACHED', 'At capacity.', 409), 409))
+      }
+      if (path === '/api/exhibitions/2') {
+        return Promise.resolve(respond(detail({ id: 2, title: 'Second exhibition' })))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.type(await loadSearchPage(), 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+    await waitFor(() => expect(refreshSignal).toBeDefined())
+    window.history.pushState({}, '', '/exhibitions/2/artworks')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    await waitFor(() => expect(refreshSignal?.aborted).toBe(true))
+    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+    expect(screen.queryByText('Lines of Light')).not.toBeInTheDocument()
   })
 })

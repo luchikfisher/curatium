@@ -128,17 +128,28 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setAddError('')
     try {
       const addedItem = await addExhibitionArtwork(currentExhibition.id, artwork, controller.signal)
-      if (!controller.signal.aborted) {
+      if (isCurrentAddRequest(controller)) {
         replace(withAddedItem(currentExhibition, addedItem))
       }
     } catch (reason) {
-      if (!controller.signal.aborted) handleAddError(reason, artwork, key)
+      if (isCurrentAddRequest(controller)) {
+        await handleAddError(reason, artwork, key, controller)
+      }
     } finally {
-      if (!controller.signal.aborted) setAddingExternalId(null)
+      if (isCurrentAddRequest(controller)) setAddingExternalId(null)
     }
   }
 
-  function handleAddError(reason: unknown, artwork: MuseumArtworkSearchResult, key: string) {
+  function isCurrentAddRequest(controller: AbortController) {
+    return !controller.signal.aborted && addController.current === controller
+  }
+
+  async function handleAddError(
+    reason: unknown,
+    artwork: MuseumArtworkSearchResult,
+    key: string,
+    controller: AbortController,
+  ) {
     const error = reason instanceof Error ? reason : new Error('Unknown error')
     if (isFrontendError(error)) {
       if (error.code === 'DUPLICATE_EXHIBITION_ARTWORK') {
@@ -149,6 +160,22 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       if (error.code === 'EXHIBITION_ARTWORK_LIMIT_REACHED') {
         setCapacityReached(true)
         setAddError('This exhibition already has the maximum of 10 artworks.')
+        try {
+          const refreshedExhibition = await getExhibition(
+            currentExhibition.id,
+            controller.signal,
+          )
+          if (isCurrentAddRequest(controller)) {
+            replace(refreshedExhibition)
+            setCapacityReached(refreshedExhibition.items.length >= 10)
+          }
+        } catch (refreshReason) {
+          if (isCurrentAddRequest(controller) && !isAbortError(refreshReason)) {
+            setAddError(
+              'This exhibition is at capacity. The displayed artwork list could not be refreshed and may be stale. Reload this page to see the latest artworks.',
+            )
+          }
+        }
         return
       }
       if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
@@ -363,6 +390,10 @@ function withAddedItem(exhibition: ExhibitionDetail, addedItem: ExhibitionDetail
 
 function artworkKey(artwork: Pick<MuseumArtworkSearchResult, 'source' | 'externalId'>): string {
   return `${artwork.source}:${artwork.externalId}`
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof DOMException && reason.name === 'AbortError'
 }
 
 function parseExhibitionId(id: string | undefined): number | null {
