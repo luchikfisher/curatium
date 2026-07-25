@@ -61,4 +61,57 @@ public class Artwork {
     @CreationTimestamp
     @Column(name = "imported_at", nullable = false, updatable = false)
     private Instant importedAt;
+
+    private Artwork(
+            ArtworkSource source,
+            String externalId,
+            String title,
+            String artistDisplay,
+            String dateDisplay,
+            String mediumDisplay,
+            String thumbnailUrl,
+            String imageUrl,
+            String sourceUrl,
+            String creditLine,
+            boolean publicDomain
+    ) {
+        this.source = source;
+        this.externalId = externalId;
+        this.title = title;
+        this.artistDisplay = artistDisplay;
+        this.dateDisplay = dateDisplay;
+        this.mediumDisplay = mediumDisplay;
+        this.thumbnailUrl = thumbnailUrl;
+        this.imageUrl = imageUrl;
+        this.sourceUrl = sourceUrl;
+        this.creditLine = creditLine;
+        this.publicDomain = publicDomain;
+    }
+
+    public static Artwork importSnapshot(
+            ArtworkSource source,
+            String externalId,
+            String title,
+            String artistDisplay,
+            String dateDisplay,
+            String mediumDisplay,
+            String thumbnailUrl,
+            String imageUrl,
+            String sourceUrl,
+            String creditLine
+    ) {
+        return new Artwork(
+                source,
+                externalId,
+                title,
+                artistDisplay,
+                dateDisplay,
+                mediumDisplay,
+                thumbnailUrl,
+                imageUrl,
+                sourceUrl,
+                creditLine,
+                true
+        );
+    }
 }

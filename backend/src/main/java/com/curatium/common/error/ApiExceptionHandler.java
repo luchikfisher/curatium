@@ -1,8 +1,13 @@
 package com.curatium.common.error;
 
+import com.curatium.artwork.application.ArtworkNotImportableException;
+import com.curatium.artwork.application.InvalidMuseumSearchRequestException;
+import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
 import com.curatium.exhibition.application.ExhibitionNotEditableException;
 import com.curatium.exhibition.application.ExhibitionNotFoundException;
 import com.curatium.exhibition.application.InvalidExhibitionRequestException;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
@@ -103,6 +108,31 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
+    @ExceptionHandler(InvalidMuseumSearchRequestException.class)
+    public ResponseEntity<Object> handleInvalidMuseumSearchRequest(
+            InvalidMuseumSearchRequestException exception
+    ) {
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "The request contains invalid values.",
+                List.of(new ApiFieldError(exception.getField(), exception.getMessage()))
+        );
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Object> handleConstraintViolation(ConstraintViolationException exception) {
+        List<ApiFieldError> fieldErrors = exception.getConstraintViolations().stream()
+                .map(this::toFieldError)
+                .toList();
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "The request contains invalid values.",
+                fieldErrors
+        );
+    }
+
     @ExceptionHandler(ExhibitionNotFoundException.class)
     public ResponseEntity<Object> handleExhibitionNotFound(
             ExhibitionNotFoundException exception
@@ -123,6 +153,26 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.CONFLICT,
                 "PUBLISHED_EXHIBITION_READ_ONLY",
                 exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ArtworkNotImportableException.class)
+    public ResponseEntity<Object> handleArtworkNotImportable(ArtworkNotImportableException exception) {
+        return response(
+                HttpStatus.UNPROCESSABLE_CONTENT,
+                "ARTWORK_NOT_IMPORTABLE",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ArtInstituteIntegrationException.class)
+    public ResponseEntity<Object> handleMuseumServiceFailure(ArtInstituteIntegrationException exception) {
+        return response(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "MUSEUM_SERVICE_UNAVAILABLE",
+                "The museum service is temporarily unavailable.",
                 List.of()
         );
     }
@@ -173,6 +223,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 : error.getDefaultMessage();
 
         return new ApiFieldError(error.getField(), message);
+    }
+
+    private ApiFieldError toFieldError(ConstraintViolation<?> violation) {
+        String propertyPath = violation.getPropertyPath().toString();
+        int separator = propertyPath.lastIndexOf('.');
+        String field = separator == -1 ? propertyPath : propertyPath.substring(separator + 1);
+        return new ApiFieldError(field, violation.getMessage());
     }
 
     private String fieldName(TypeMismatchException exception) {
