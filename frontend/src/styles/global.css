@@ -105,6 +105,11 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .artwork-search-section { padding: 2rem 0; border-top: 1px solid var(--line); }
 .artwork-search-section h2 { margin: 0 0 1.5rem; font-size: 1.8rem; }
 .section-copy { margin: 0; color: var(--muted); line-height: 1.5; }
+.cover-selection__current { display: flex; align-items: flex-start; gap: 1rem; }
+.cover-selection__current img, .cover-selection__current .current-artwork-item__image-placeholder { width: 8rem; height: 6rem; flex: 0 0 auto; object-fit: cover; background: #dedbd3; }
+.cover-selection__current p { margin: 0 0 .5rem; }
+.cover-selection__status, .current-artwork-item__cover { color: var(--muted); font-weight: 700; }
+.cover-selection__current .button { margin: .5rem 0 0; }
 .current-artwork-list { display: grid; gap: .6rem; margin: 0; padding-left: 1.5rem; }
 .current-artwork-list li { color: var(--muted); line-height: 1.5; }
 .current-artwork-list li span { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -163,6 +168,8 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
   .museum-search-form__controls { align-items: stretch; flex-direction: column; }
   .current-artwork-item__summary { align-items: stretch; flex-direction: column; }
   .current-artwork-item__summary img, .current-artwork-item__image-placeholder { width: 100%; height: auto; aspect-ratio: 4 / 3; }
+  .cover-selection__current { flex-direction: column; }
+  .cover-selection__current img, .cover-selection__current .current-artwork-item__image-placeholder { width: 100%; height: auto; aspect-ratio: 4 / 3; }
   .state-panel { padding: 2rem 1rem; }
 }
 

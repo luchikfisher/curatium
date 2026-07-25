@@ -248,6 +248,32 @@ export function updateExhibition(
   return metadataRequest('PUT', `/api/exhibitions/${exhibitionId}`, metadata, signal)
 }
 
+export function selectExhibitionCover(
+  exhibitionId: number,
+  artworkId: number,
+  signal?: AbortSignal,
+): Promise<ExhibitionDetail> {
+  return requestDetail(
+    `/api/exhibitions/${exhibitionId}/cover`,
+    {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ artworkId }),
+    },
+  )
+}
+
+export function clearExhibitionCover(
+  exhibitionId: number,
+  signal?: AbortSignal,
+): Promise<ExhibitionDetail> {
+  return requestDetail(
+    `/api/exhibitions/${exhibitionId}/cover`,
+    { method: 'DELETE', signal },
+  )
+}
+
 export async function searchMuseumArtworks(
   query: string,
   page = 1,
