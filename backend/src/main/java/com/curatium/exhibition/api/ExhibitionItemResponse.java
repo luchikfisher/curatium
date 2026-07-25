@@ -2,7 +2,7 @@ package com.curatium.exhibition.api;
 
 public record ExhibitionItemResponse(
         Long id,
-        Long artworkId,
+        ExhibitionArtworkResponse artwork,
         int position,
         String curatorialNote
 ) {

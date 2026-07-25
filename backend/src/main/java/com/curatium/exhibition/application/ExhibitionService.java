@@ -1,24 +1,45 @@
 package com.curatium.exhibition.application;
 
+import com.curatium.artwork.application.ArtworkImportService;
+import com.curatium.artwork.application.ArtworkImportPreparation;
+import com.curatium.artwork.domain.Artwork;
+import com.curatium.exhibition.api.AddExhibitionItemRequest;
 import com.curatium.exhibition.api.CreateExhibitionRequest;
 import com.curatium.exhibition.api.ExhibitionDetailResponse;
+import com.curatium.exhibition.api.ExhibitionArtworkResponse;
 import com.curatium.exhibition.api.ExhibitionItemResponse;
 import com.curatium.exhibition.api.ExhibitionSummaryResponse;
 import com.curatium.exhibition.api.UpdateExhibitionRequest;
 import com.curatium.exhibition.domain.Exhibition;
 import com.curatium.exhibition.domain.ExhibitionItem;
+import com.curatium.exhibition.persistence.ExhibitionItemRepository;
 import com.curatium.exhibition.persistence.ExhibitionRepository;
 import java.util.List;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class ExhibitionService {
 
-    private final ExhibitionRepository exhibitionRepository;
+    private static final int MAXIMUM_ARTWORK_COUNT = 10;
 
-    public ExhibitionService(ExhibitionRepository exhibitionRepository) {
+    private final ExhibitionRepository exhibitionRepository;
+    private final ExhibitionItemRepository exhibitionItemRepository;
+    private final ArtworkImportService artworkImportService;
+    private final TransactionTemplate transactionTemplate;
+
+    public ExhibitionService(
+            ExhibitionRepository exhibitionRepository,
+            ExhibitionItemRepository exhibitionItemRepository,
+            ArtworkImportService artworkImportService,
+            TransactionTemplate transactionTemplate
+    ) {
         this.exhibitionRepository = exhibitionRepository;
+        this.exhibitionItemRepository = exhibitionItemRepository;
+        this.artworkImportService = artworkImportService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Transactional(readOnly = true)
@@ -60,6 +81,58 @@ public class ExhibitionService {
         Exhibition exhibition = getRequiredExhibition(exhibitionId);
         requireDraft(exhibition);
         exhibitionRepository.delete(exhibition);
+    }
+
+    public ExhibitionItemResponse addArtwork(long exhibitionId, AddExhibitionItemRequest request) {
+        validateCanAddArtwork(exhibitionId);
+        ArtworkImportPreparation importPreparation = artworkImportService.prepareImport(
+                request.source(),
+                request.externalId()
+        );
+
+        try {
+            return transactionTemplate.execute(status -> addArtworkInTransaction(exhibitionId, importPreparation));
+        } catch (DataIntegrityViolationException exception) {
+            if (artworkImportService.findLocalArtwork(importPreparation)
+                    .filter(artwork -> exhibitionItemRepository.existsByExhibitionIdAndArtworkId(
+                            exhibitionId,
+                            artwork.getId()
+                    ))
+                    .isPresent()) {
+                throw new DuplicateExhibitionArtworkException(exhibitionId);
+            }
+            throw exception;
+        }
+    }
+
+    private ExhibitionItemResponse addArtworkInTransaction(
+            long exhibitionId,
+            ArtworkImportPreparation importPreparation
+    ) {
+        Exhibition exhibition = exhibitionRepository.findByIdForUpdate(exhibitionId)
+                .orElseThrow(() -> new ExhibitionNotFoundException(exhibitionId));
+        requireDraft(exhibition);
+
+        long itemCount = exhibitionItemRepository.countByExhibitionId(exhibitionId);
+        if (itemCount >= MAXIMUM_ARTWORK_COUNT) {
+            throw new ExhibitionCapacityExceededException(exhibitionId);
+        }
+
+        Artwork artwork = artworkImportService.findOrPersist(importPreparation);
+        if (exhibitionItemRepository.existsByExhibitionIdAndArtworkId(exhibitionId, artwork.getId())) {
+            throw new DuplicateExhibitionArtworkException(exhibitionId);
+        }
+
+        ExhibitionItem item = ExhibitionItem.addTo(exhibition, artwork, (int) itemCount + 1);
+        return toItemResponse(exhibitionItemRepository.saveAndFlush(item));
+    }
+
+    private void validateCanAddArtwork(long exhibitionId) {
+        Exhibition exhibition = getRequiredExhibition(exhibitionId);
+        requireDraft(exhibition);
+        if (exhibitionItemRepository.countByExhibitionId(exhibitionId) >= MAXIMUM_ARTWORK_COUNT) {
+            throw new ExhibitionCapacityExceededException(exhibitionId);
+        }
     }
 
     private Exhibition getRequiredExhibition(long exhibitionId) {
@@ -124,9 +197,26 @@ public class ExhibitionService {
     private ExhibitionItemResponse toItemResponse(ExhibitionItem item) {
         return new ExhibitionItemResponse(
                 item.getId(),
-                item.getArtwork().getId(),
+                toArtworkResponse(item.getArtwork()),
                 item.getPosition(),
                 item.getCuratorialNote()
+        );
+    }
+
+    private ExhibitionArtworkResponse toArtworkResponse(Artwork artwork) {
+        return new ExhibitionArtworkResponse(
+                artwork.getId(),
+                artwork.getSource(),
+                artwork.getExternalId(),
+                artwork.getTitle(),
+                artwork.getArtistDisplay(),
+                artwork.getDateDisplay(),
+                artwork.getMediumDisplay(),
+                artwork.getThumbnailUrl(),
+                artwork.getImageUrl(),
+                artwork.getSourceUrl(),
+                artwork.getCreditLine(),
+                artwork.isPublicDomain()
         );
     }
 }

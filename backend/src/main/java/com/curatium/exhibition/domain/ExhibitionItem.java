@@ -48,4 +48,18 @@ public class ExhibitionItem {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    private ExhibitionItem(Exhibition exhibition, Artwork artwork, int position) {
+        this.exhibition = exhibition;
+        this.artwork = artwork;
+        this.position = position;
+    }
+
+    public static ExhibitionItem addTo(
+            Exhibition exhibition,
+            Artwork artwork,
+            int position
+    ) {
+        return new ExhibitionItem(exhibition, artwork, position);
+    }
 }

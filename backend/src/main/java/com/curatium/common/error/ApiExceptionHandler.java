@@ -4,7 +4,9 @@ import com.curatium.artwork.application.ArtworkNotImportableException;
 import com.curatium.artwork.application.InvalidMuseumSearchRequestException;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
 import com.curatium.exhibition.application.ExhibitionNotEditableException;
+import com.curatium.exhibition.application.ExhibitionCapacityExceededException;
 import com.curatium.exhibition.application.ExhibitionNotFoundException;
+import com.curatium.exhibition.application.DuplicateExhibitionArtworkException;
 import com.curatium.exhibition.application.InvalidExhibitionRequestException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -152,6 +154,30 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return response(
                 HttpStatus.CONFLICT,
                 "PUBLISHED_EXHIBITION_READ_ONLY",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(DuplicateExhibitionArtworkException.class)
+    public ResponseEntity<Object> handleDuplicateExhibitionArtwork(
+            DuplicateExhibitionArtworkException exception
+    ) {
+        return response(
+                HttpStatus.CONFLICT,
+                "DUPLICATE_EXHIBITION_ARTWORK",
+                exception.getMessage(),
+                List.of()
+        );
+    }
+
+    @ExceptionHandler(ExhibitionCapacityExceededException.class)
+    public ResponseEntity<Object> handleExhibitionCapacityExceeded(
+            ExhibitionCapacityExceededException exception
+    ) {
+        return response(
+                HttpStatus.CONFLICT,
+                "EXHIBITION_ARTWORK_LIMIT_REACHED",
                 exception.getMessage(),
                 List.of()
         );
