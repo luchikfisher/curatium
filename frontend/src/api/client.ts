@@ -76,6 +76,9 @@ export async function apiRequest<T>(
       },
     })
   } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') {
+      throw cause
+    }
     throw new FrontendError(
       'Curatium could not reach the server. Check your connection and try again.',
       'network',

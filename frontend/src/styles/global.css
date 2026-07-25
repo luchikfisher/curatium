@@ -74,6 +74,33 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .loading-mark { display: block; width: 1.5rem; height: 1.5rem; margin: 0 auto 1rem; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
 .placeholder-page { max-width: 50rem; min-height: 36rem; }
 .route-context { color: var(--muted); font-variant-numeric: tabular-nums; }
+.editor-page { padding-bottom: 6rem; }
+.editor-heading { padding-bottom: 2.25rem; }
+.editor-heading h1, .editor-state h1 { font-size: clamp(2.6rem, 5vw, 4.4rem); }
+.editor-links { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 2rem; }
+.editor-links .button-secondary { margin: 0; }
+.editor-section { max-width: 48rem; padding: 2rem 0; border-top: 1px solid var(--line); }
+.editor-section h2 { margin: 0 0 1.5rem; font-size: 1.8rem; }
+.exhibition-form { display: grid; gap: 1.35rem; }
+.form-field { display: grid; gap: .55rem; }
+.form-field label { font-weight: 700; }
+.form-field input, .form-field textarea { width: 100%; border: 1px solid var(--line); border-radius: 0; padding: .75rem; background: var(--paper); color: var(--ink); font: inherit; line-height: 1.5; }
+.form-field textarea { resize: vertical; }
+.form-field input[aria-invalid="true"], .form-field textarea[aria-invalid="true"] { border-color: #a63425; }
+.field-error, .form-alert, .form-success { margin: 0; line-height: 1.5; }
+.field-error { color: #a63425; font-size: .9rem; }
+.form-alert { margin: 0 0 1.25rem; border-left: 3px solid #a63425; padding: .75rem 1rem; background: #fff3f0; color: #69231b; }
+.form-success { margin: 0 0 1.25rem; border-left: 3px solid #27623c; padding: .75rem 1rem; background: #edf7ef; color: #1d4f30; }
+.editor-cancel { display: inline-block; margin-top: 1.5rem; }
+.delete-section > p { margin: 0 0 1.25rem; color: var(--muted); line-height: 1.5; }
+.button-danger { border-color: #7d281f; background: #7d281f; }
+.button-danger:hover { background: #5f1c16; }
+.delete-confirmation { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; border: 1px solid #d7a69f; padding: 1rem; background: #fff3f0; }
+.delete-confirmation p { flex-basis: 100%; margin: 0 0 .25rem; color: #69231b; }
+.delete-confirmation .button-secondary { margin: 0; }
+.editor-state { max-width: 48rem; margin: 5rem 0 6rem; text-align: left; }
+.editor-state p { margin-inline: 0; }
+.editor-state .text-link { display: inline-block; margin-top: 1.25rem; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -84,6 +111,7 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
   .page-heading--with-action { align-items: stretch; flex-direction: column; }
   .page-heading--with-action .button { align-self: flex-start; }
   .content-section { padding-bottom: 4rem; }
+  .editor-page { padding-bottom: 4rem; }
   .state-panel { padding: 2rem 1rem; }
 }
 

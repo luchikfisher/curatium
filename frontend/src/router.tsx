@@ -1,6 +1,8 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { AppLayout } from './components/AppLayout'
 import { CuratorExhibitionsPage } from './pages/CuratorExhibitionsPage'
+import { EditExhibitionPage } from './pages/EditExhibitionPage'
+import { NewExhibitionPage } from './pages/NewExhibitionPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { PublicCataloguePage } from './pages/PublicCataloguePage'
@@ -13,11 +15,11 @@ export const appRouter = createBrowserRouter([
       { path: '/exhibitions', element: <CuratorExhibitionsPage /> },
       {
         path: '/exhibitions/new',
-        element: <PlaceholderPage eyebrow="Curator workspace" title="Create an exhibition" description="Exhibition details and creation will be implemented in the curator workflow phase." backTo="/exhibitions" />,
+        element: <NewExhibitionPage />,
       },
       {
         path: '/exhibitions/:id/edit',
-        element: <PlaceholderPage eyebrow="Curator workspace" title="Exhibition editor" description="Metadata, artwork ordering, cover selection, and publication controls will live here." backTo="/exhibitions" />,
+        element: <EditExhibitionPage />,
       },
       {
         path: '/exhibitions/:id/artworks',
