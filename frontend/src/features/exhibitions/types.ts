@@ -51,3 +51,24 @@ export interface ExhibitionDetail {
   createdAt: string
   updatedAt: string
 }
+
+export interface MuseumArtworkSearchResult {
+  source: ArtworkSource
+  externalId: string
+  title: string
+  artistDisplay: string | null
+  dateDisplay: string | null
+  mediumDisplay: string | null
+  thumbnailUrl: string | null
+  imageUrl: string | null
+  sourceUrl: string | null
+  creditLine: string | null
+  publicDomain: boolean
+}
+
+export interface MuseumArtworkSearchPage {
+  items: MuseumArtworkSearchResult[]
+  page: number
+  pageSize: number
+  hasNextPage: boolean
+}

@@ -6,6 +6,7 @@ interface ExhibitionQuery {
   data: ExhibitionDetail | null
   error: FrontendError | Error | null
   retry: () => void
+  replace: (exhibition: ExhibitionDetail) => void
 }
 
 export function useExhibition(
@@ -20,6 +21,11 @@ export function useExhibition(
     setData(null)
     setError(null)
     setAttempt((value) => value + 1)
+  }, [])
+
+  const replace = useCallback((exhibition: ExhibitionDetail) => {
+    setData(exhibition)
+    setError(null)
   }, [])
 
   useEffect(() => {
@@ -37,7 +43,7 @@ export function useExhibition(
     return () => controller.abort()
   }, [attempt, exhibitionId, load])
 
-  return { data, error, retry }
+  return { data, error, retry, replace }
 }
 
 function isAbortError(reason: unknown): boolean {

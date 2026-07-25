@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { AppLayout } from './components/AppLayout'
 import { CuratorExhibitionsPage } from './pages/CuratorExhibitionsPage'
+import { ArtworkSearchPage } from './pages/ArtworkSearchPage'
 import { EditExhibitionPage } from './pages/EditExhibitionPage'
 import { NewExhibitionPage } from './pages/NewExhibitionPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -23,7 +24,7 @@ export const appRouter = createBrowserRouter([
       },
       {
         path: '/exhibitions/:id/artworks',
-        element: <PlaceholderPage eyebrow="Museum collection" title="Search and select artworks" description="This route will search through the Curatium backend; the browser will never contact the museum provider directly." backTo="/exhibitions" />,
+        element: <ArtworkSearchPage />,
       },
       {
         path: '/exhibitions/:id/preview',

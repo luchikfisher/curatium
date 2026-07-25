@@ -6,6 +6,8 @@ import type {
   ExhibitionMetadata,
   ExhibitionStatus,
   ExhibitionSummary,
+  MuseumArtworkSearchPage,
+  MuseumArtworkSearchResult,
 } from './types'
 import { FrontendError } from '../../api/errors'
 
@@ -94,6 +96,49 @@ function parseItem(value: unknown): ExhibitionItem {
     artwork: parseArtwork(value.artwork),
     position: value.position,
     curatorialNote: parseNullableString(value.curatorialNote),
+  }
+}
+
+function parseMuseumArtwork(value: unknown): MuseumArtworkSearchResult {
+  if (
+    !isRecord(value) ||
+    value.source !== 'ART_INSTITUTE_OF_CHICAGO' ||
+    typeof value.externalId !== 'string' ||
+    typeof value.title !== 'string' ||
+    typeof value.publicDomain !== 'boolean'
+  ) {
+    throw new TypeError('Invalid museum artwork')
+  }
+  return {
+    source: value.source,
+    externalId: value.externalId,
+    title: value.title,
+    artistDisplay: parseNullableString(value.artistDisplay),
+    dateDisplay: parseNullableString(value.dateDisplay),
+    mediumDisplay: parseNullableString(value.mediumDisplay),
+    thumbnailUrl: parseNullableString(value.thumbnailUrl),
+    imageUrl: parseNullableString(value.imageUrl),
+    sourceUrl: parseNullableString(value.sourceUrl),
+    creditLine: parseNullableString(value.creditLine),
+    publicDomain: value.publicDomain,
+  }
+}
+
+function parseMuseumArtworkSearchPage(value: unknown): MuseumArtworkSearchPage {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.items) ||
+    typeof value.page !== 'number' ||
+    typeof value.pageSize !== 'number' ||
+    typeof value.hasNextPage !== 'boolean'
+  ) {
+    throw new TypeError('Invalid museum artwork search page')
+  }
+  return {
+    items: value.items.map(parseMuseumArtwork),
+    page: value.page,
+    pageSize: value.pageSize,
+    hasNextPage: value.hasNextPage,
   }
 }
 
@@ -196,6 +241,57 @@ export function updateExhibition(
   signal?: AbortSignal,
 ): Promise<ExhibitionDetail> {
   return metadataRequest('PUT', `/api/exhibitions/${exhibitionId}`, metadata, signal)
+}
+
+export async function searchMuseumArtworks(
+  query: string,
+  page = 1,
+  size = 20,
+  signal?: AbortSignal,
+): Promise<MuseumArtworkSearchPage> {
+  const parameters = new URLSearchParams({
+    q: query,
+    page: String(page),
+    size: String(size),
+  })
+  const result = await apiRequest(
+    `/api/museum/artworks?${parameters.toString()}`,
+    { signal },
+    parseMuseumArtworkSearchPage,
+  )
+  if (result === undefined) {
+    throw new FrontendError(
+      'The server returned an empty museum search response.',
+      'malformed',
+      204,
+    )
+  }
+  return result
+}
+
+export async function addExhibitionArtwork(
+  exhibitionId: number,
+  artwork: Pick<MuseumArtworkSearchResult, 'source' | 'externalId'>,
+  signal?: AbortSignal,
+): Promise<ExhibitionItem> {
+  const item = await apiRequest(
+    `/api/exhibitions/${exhibitionId}/items`,
+    {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: artwork.source, externalId: artwork.externalId }),
+    },
+    parseItem,
+  )
+  if (item === undefined) {
+    throw new FrontendError(
+      'The server returned an empty added-artwork response.',
+      'malformed',
+      204,
+    )
+  }
+  return item
 }
 
 export async function deleteDraftExhibition(
