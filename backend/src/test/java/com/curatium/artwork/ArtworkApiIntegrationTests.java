@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,7 +13,6 @@ import com.curatium.artwork.application.ArtworkNotImportableException;
 import com.curatium.artwork.domain.Artwork;
 import com.curatium.artwork.domain.ArtworkSource;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
-import com.curatium.artwork.integration.cleveland.ClevelandMuseumIntegrationException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -33,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -217,7 +218,7 @@ class ArtworkApiIntegrationTests {
     }
 
     @Test
-    void rejectsInvalidMismatchedAndMalformedClevelandImportRecords() {
+    void rejectsInvalidClevelandIdentifiersAndClassifiesMismatchedOrMalformedRecordsAsProviderFailures() throws Exception {
         ArtworkNotImportableException invalidIdentifier = assertThrows(
                 ArtworkNotImportableException.class,
                 () -> importClevelandArtwork("../../not-an-accession")
@@ -226,14 +227,28 @@ class ArtworkApiIntegrationTests {
         assertEquals(0, CLEVELAND_DETAIL_REQUESTS.get());
 
         CLEVELAND_DETAIL_BODY.set(clevelandArtworkDetail().replace("\"1947.209\"", "\"2020.1\""));
-        ArtworkNotImportableException mismatch = assertThrows(
-                ArtworkNotImportableException.class,
-                () -> importClevelandArtwork("1947.209")
-        );
-        assertEquals("The provider returned a different artwork.", mismatch.getMessage());
+        assertClevelandImportApiFailure("1947.209", 503, "MUSEUM_SERVICE_UNAVAILABLE");
 
-        CLEVELAND_DETAIL_BODY.set("{\"data\": {\"accession_number\": \"1947.209\"}}");
-        assertThrows(ClevelandMuseumIntegrationException.class, () -> importClevelandArtwork("1947.209"));
+        CLEVELAND_DETAIL_BODY.set("{\"data\": {}}");
+        assertClevelandImportApiFailure("1947.209", 503, "MUSEUM_SERVICE_UNAVAILABLE");
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
+    }
+
+    @Test
+    void classifiesNonCc0AndMissingWebImageClevelandRecordsAsNotImportable() throws Exception {
+        CLEVELAND_DETAIL_BODY.set(clevelandArtworkDetail().replace("\"CC0\"", "\"Copyrighted\""));
+        assertClevelandImportApiFailure("1947.209", 422, "ARTWORK_NOT_IMPORTABLE");
+
+        CLEVELAND_DETAIL_BODY.set("""
+                {
+                  "data": {
+                    "accession_number": "1947.209",
+                    "title": "The Large Plane Trees",
+                    "share_license_status": "CC0"
+                  }
+                }
+                """);
+        assertClevelandImportApiFailure("1947.209", 422, "ARTWORK_NOT_IMPORTABLE");
         assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
     }
 
@@ -326,6 +341,27 @@ class ArtworkApiIntegrationTests {
 
     private Artwork importClevelandArtwork(String externalId) {
         return artworkImportService.importArtwork(ArtworkSource.CLEVELAND_MUSEUM_OF_ART, externalId);
+    }
+
+    private void assertClevelandImportApiFailure(
+            String externalId,
+            int expectedStatus,
+            String expectedCode
+    ) throws Exception {
+        MvcResult exhibition = mockMvc.perform(post("/api/exhibitions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Cleveland import classification\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long exhibitionId = objectMapper.readTree(exhibition.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(post("/api/exhibitions/{exhibitionId}/items", exhibitionId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"source":"CLEVELAND_MUSEUM_OF_ART","externalId":"%s"}
+                                """.formatted(externalId)))
+                .andExpect(status().is(expectedStatus))
+                .andExpect(jsonPath("$.code").value(expectedCode));
     }
 
     private static HttpServer startMuseumServer() {

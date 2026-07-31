@@ -95,7 +95,8 @@ public class ClevelandMuseumClient implements MuseumArtworkSearchProvider {
             throw unavailable(exception);
         }
 
-        if (response == null || !isUsableCc0Artwork(response.data())) {
+        if (response == null || response.data() == null
+                || !accessionNumber.equals(response.data().accession_number())) {
             throw new ClevelandMuseumIntegrationException(
                     "The Cleveland Museum of Art returned an unusable response."
             );
@@ -121,12 +122,28 @@ public class ClevelandMuseumClient implements MuseumArtworkSearchProvider {
                 creatorDescription(artwork.creators()),
                 blankToNull(artwork.creation_date()),
                 mediumDisplay(artwork.technique(), artwork.measurements()),
-                ClevelandArtworkImageUrlFactory.thumbnailUrl(artwork.accession_number()),
-                ClevelandArtworkImageUrlFactory.displayUrl(artwork.accession_number()),
+                thumbnailUrl(artwork),
+                displayUrl(artwork),
                 blankToNull(artwork.url()),
                 blankToNull(artwork.creditline()),
-                true
+                CC0_LICENSE.equals(artwork.share_license_status())
         );
+    }
+
+    private String thumbnailUrl(ClevelandMuseumArtworkResponse artwork) {
+        return hasWebImage(artwork)
+                ? ClevelandArtworkImageUrlFactory.thumbnailUrl(artwork.accession_number())
+                : null;
+    }
+
+    private String displayUrl(ClevelandMuseumArtworkResponse artwork) {
+        return hasWebImage(artwork)
+                ? ClevelandArtworkImageUrlFactory.displayUrl(artwork.accession_number())
+                : null;
+    }
+
+    private boolean hasWebImage(ClevelandMuseumArtworkResponse artwork) {
+        return artwork.images() != null && !isBlank(imageUrl(artwork.images().web()));
     }
 
     private String creatorDescription(List<ClevelandMuseumCreatorResponse> creators) {

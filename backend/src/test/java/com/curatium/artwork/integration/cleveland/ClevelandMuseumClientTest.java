@@ -106,11 +106,31 @@ class ClevelandMuseumClientTest {
         assertThrows(ClevelandMuseumArtworkNotFoundException.class, () -> client.getArtwork("1947.209"));
 
         responseStatus.set(200);
-        responseBody.set("{\"data\": {\"accession_number\": \"1947.209\"}}");
+        responseBody.set("{\"data\": {}}");
         assertThrows(ClevelandMuseumIntegrationException.class, () -> client.getArtwork("1947.209"));
 
         responseBody.set("{\"data\": null}");
         assertThrows(ClevelandMuseumIntegrationException.class, () -> client.getArtwork("1947.209"));
+    }
+
+    @Test
+    void mapsNonCc0AndMissingWebImageImportRecordsForImportLayerClassification() {
+        responseBody.set(detailResponse().replace("\"CC0\"", "\"Copyrighted\""));
+        MuseumArtworkSearchResult nonCc0 = client.getArtwork("1947.209");
+        assertTrue(!nonCc0.publicDomain());
+
+        responseBody.set("""
+                {
+                  "data": {
+                    "accession_number": "1947.209",
+                    "title": "The Large Plane Trees",
+                    "share_license_status": "CC0"
+                  }
+                }
+                """);
+        MuseumArtworkSearchResult missingWebImage = client.getArtwork("1947.209");
+        assertNull(missingWebImage.thumbnailUrl());
+        assertNull(missingWebImage.imageUrl());
     }
 
     @Test

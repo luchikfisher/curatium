@@ -44,6 +44,12 @@ public class ArtworkImportService {
             );
         }
 
+        if (isBlank(artworkDetails.title())) {
+            throw new ArtworkNotImportableException(
+                    "The artwork is missing required metadata."
+            );
+        }
+
         if (!artworkDetails.publicDomain()) {
             throw new ArtworkNotImportableException(
                     "Only public-domain artworks can be imported."
