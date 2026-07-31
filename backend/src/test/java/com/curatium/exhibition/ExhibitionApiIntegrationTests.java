@@ -167,20 +167,34 @@ class ExhibitionApiIntegrationTests {
 
     @Test
     void returnsStructuredFieldErrorsForInvalidRequests() throws Exception {
-        mockMvc.perform(post("/api/exhibitions")
+        MvcResult blankTitle = mockMvc.perform(post("/api/exhibitions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"   \",\"summary\":\"text\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.fieldErrors[0].field").value("title"));
+                .andReturn();
+        assertValidationError(blankTitle, "title", "Title is required.");
 
         String tooLongTitle = "x".repeat(151);
-        mockMvc.perform(post("/api/exhibitions")
+        MvcResult titleTooLong = mockMvc.perform(post("/api/exhibitions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"%s\"}".formatted(tooLongTitle)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.fieldErrors[0].field").value("title"));
+                .andReturn();
+        assertValidationError(titleTooLong, "title", "Title must be at most 150 characters.");
+
+        MvcResult summaryTooLong = mockMvc.perform(post("/api/exhibitions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Valid title\",\"summary\":\"%s\"}".formatted("x".repeat(301))))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertValidationError(summaryTooLong, "summary", "Summary must be at most 300 characters.");
+
+        MvcResult introductionTooLong = mockMvc.perform(post("/api/exhibitions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Valid title\",\"introduction\":\"%s\"}".formatted("x".repeat(5001))))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+        assertValidationError(introductionTooLong, "introduction", "Introduction must be at most 5,000 characters.");
     }
 
     @Test
@@ -1207,6 +1221,17 @@ class ExhibitionApiIntegrationTests {
 
     private JsonNode readResponse(MvcResult result) throws Exception {
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private void assertValidationError(MvcResult result, String field, String message) throws Exception {
+        JsonNode response = readResponse(result);
+        assertEquals("VALIDATION_ERROR", response.get("code").asString());
+        assertEquals("The request contains invalid values.", response.get("message").asString());
+        assertTrue(response.get("timestamp").isTextual());
+        Instant.parse(response.get("timestamp").asString());
+        assertEquals(1, response.get("fieldErrors").size());
+        assertEquals(field, response.get("fieldErrors").get(0).get("field").asString());
+        assertEquals(message, response.get("fieldErrors").get(0).get("message").asString());
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder addArtworkRequest(
