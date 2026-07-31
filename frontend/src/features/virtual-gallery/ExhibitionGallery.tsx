@@ -54,21 +54,23 @@ function GalleryInstance({
         </button>
       </div>
       <GalleryErrorBoundary resetKey={exhibition.id} fallback={fallback}>
-        <Canvas
-          className="virtual-gallery__canvas"
-          camera={{ fov: 52, position: ENTRY_CAMERA_POSITION }}
-          dpr={[1, 1.5]}
-          frameloop="demand"
-        >
-          <GalleryScene
-            assignments={assignments}
-            viewpoint={viewpoint}
-            reducedMotion={reducedMotion}
-            onContextLost={() => setShowStandardGallery(true)}
-          />
-        </Canvas>
+        <>
+          <Canvas
+            className="virtual-gallery__canvas"
+            camera={{ fov: 52, position: ENTRY_CAMERA_POSITION }}
+            dpr={[1, 1.5]}
+            frameloop="demand"
+          >
+            <GalleryScene
+              assignments={assignments}
+              viewpoint={viewpoint}
+              reducedMotion={reducedMotion}
+              onContextLost={() => setShowStandardGallery(true)}
+            />
+          </Canvas>
+          <GalleryNavigation assignments={assignments} selectedIndex={currentSelectedIndex} onSelect={setSelectedIndex} />
+        </>
       </GalleryErrorBoundary>
-      <GalleryNavigation assignments={assignments} selectedIndex={currentSelectedIndex} onSelect={setSelectedIndex} />
     </section>
   )
 }
