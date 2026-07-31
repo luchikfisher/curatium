@@ -1,6 +1,8 @@
 package com.curatium.artwork.integration.artinstitute;
 
-public class ArtInstituteIntegrationException extends RuntimeException {
+import com.curatium.artwork.integration.MuseumProviderIntegrationException;
+
+public class ArtInstituteIntegrationException extends MuseumProviderIntegrationException {
 
     public ArtInstituteIntegrationException(String message) {
         super(message);

@@ -1,6 +1,5 @@
 package com.curatium.artwork.application;
 
-import com.curatium.artwork.integration.artinstitute.ArtInstituteClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -8,11 +7,11 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class MuseumArtworkSearchService {
 
-    private final ArtInstituteClient artInstituteClient;
+    private final MuseumArtworkSearchProvider museumArtworkSearchProvider;
 
     public MuseumArtworkSearchPage search(String query, int page, int size) {
         String normalizedQuery = normalizeQuery(query);
-        return artInstituteClient.search(normalizedQuery, page, size);
+        return museumArtworkSearchProvider.search(normalizedQuery, page, size);
     }
 
     private String normalizeQuery(String query) {

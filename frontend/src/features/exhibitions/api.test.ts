@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createExhibition, getExhibition, listCuratorExhibitions, updateExhibition } from './api'
+import { createExhibition, getExhibition, listCuratorExhibitions, searchMuseumArtworks, updateExhibition } from './api'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -187,5 +187,40 @@ describe('exhibition detail requests', () => {
     }), { status: 200 })))
 
     await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
+  })
+})
+
+describe('museum search requests', () => {
+  it('parses Cleveland search results with intentionally unavailable image URLs', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      items: [{
+        source: 'CLEVELAND_MUSEUM_OF_ART',
+        externalId: '1947.209',
+        title: 'The Large Plane Trees',
+        artistDisplay: 'Vincent van Gogh',
+        dateDisplay: '1889',
+        mediumDisplay: 'oil on fabric',
+        thumbnailUrl: null,
+        imageUrl: null,
+        sourceUrl: 'https://clevelandart.org/art/1947.209',
+        creditLine: null,
+        publicDomain: true,
+      }],
+      page: 1,
+      pageSize: 20,
+      hasNextPage: false,
+    }), { status: 200 })))
+
+    await expect(searchMuseumArtworks('plane trees')).resolves.toEqual({
+      items: [expect.objectContaining({
+        source: 'CLEVELAND_MUSEUM_OF_ART',
+        externalId: '1947.209',
+        thumbnailUrl: null,
+        imageUrl: null,
+      })],
+      page: 1,
+      pageSize: 20,
+      hasNextPage: false,
+    })
   })
 })

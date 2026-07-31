@@ -77,6 +77,8 @@ class ArtworkApiIntegrationTests {
     static void museumProperties(DynamicPropertyRegistry registry) {
         registry.add("curatium.art-institute.base-url",
                 () -> "http://localhost:" + MUSEUM_SERVER.getAddress().getPort());
+        registry.add("curatium.cleveland-museum.base-url",
+                () -> "http://localhost:" + MUSEUM_SERVER.getAddress().getPort());
     }
 
     @AfterAll
@@ -108,13 +110,12 @@ class ArtworkApiIntegrationTests {
                 .andExpect(jsonPath("$.pageSize").value(10))
                 .andExpect(jsonPath("$.hasNextPage").value(true))
                 .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].externalId").value("154235"))
+                .andExpect(jsonPath("$.items[0].source").value("CLEVELAND_MUSEUM_OF_ART"))
+                .andExpect(jsonPath("$.items[0].externalId").value("1947.209"))
                 .andExpect(jsonPath("$.items[0].publicDomain").value(true))
-                .andExpect(jsonPath("$.items[0].thumbnailUrl").value(
-                        "/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/thumbnail"))
-                .andExpect(jsonPath("$.items[0].imageUrl").value(
-                        "/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/display"));
-        assertEquals("q=night&page=2&limit=10&fields=id,title,artist_display,date_display,medium_display,image_id,credit_line,is_public_domain",
+                .andExpect(jsonPath("$.items[0].thumbnailUrl").isEmpty())
+                .andExpect(jsonPath("$.items[0].imageUrl").isEmpty());
+        assertEquals("q=night&cc0=1&has_image=1&limit=10&skip=10",
                 SEARCH_QUERY.get());
 
         mockMvc.perform(get("/api/museum/artworks")
@@ -257,8 +258,11 @@ class ArtworkApiIntegrationTests {
             HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
             server.setExecutor(MUSEUM_SERVER_EXECUTOR);
             server.createContext("/artworks/search", exchange -> {
-                SEARCH_QUERY.set(exchange.getRequestURI().getQuery());
                 writeJson(exchange, SEARCH_STATUS.get(), searchResponse());
+            });
+            server.createContext("/api/artworks/", exchange -> {
+                SEARCH_QUERY.set(exchange.getRequestURI().getQuery());
+                writeJson(exchange, SEARCH_STATUS.get(), clevelandSearchResponse());
             });
             server.createContext("/artworks/", exchange -> {
                 DETAIL_REQUESTS.incrementAndGet();
@@ -306,6 +310,30 @@ class ArtworkApiIntegrationTests {
                   "data": [
                     {"id": 154235, "title": "The Girl by the Window", "image_id": "d7df2633-3b40-f570-c906-211503a37cde", "is_public_domain": true},
                     {"id": 2, "title": "Private artwork", "image_id": "private-image", "is_public_domain": false}
+                  ]
+                }
+                """;
+    }
+
+    private static String clevelandSearchResponse() {
+        return """
+                {
+                  "info": {"total": 21},
+                  "data": [
+                    {
+                      "id": 125249,
+                      "accession_number": "1947.209",
+                      "share_license_status": "CC0",
+                      "title": "The Large Plane Trees",
+                      "creators": [{"description": "Vincent van Gogh"}],
+                      "technique": "oil on fabric",
+                      "measurements": "73.4 x 91.8 cm",
+                      "url": "https://clevelandart.org/art/1947.209",
+                      "images": {
+                        "web": {"url": "https://openaccess-cdn.clevelandart.org/1947.209/1947.209_web.jpg"},
+                        "print": {"url": "https://openaccess-cdn.clevelandart.org/1947.209/1947.209_print.jpg"}
+                      }
+                    }
                   ]
                 }
                 """;

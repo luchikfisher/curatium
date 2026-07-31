@@ -5,7 +5,7 @@ import com.curatium.artwork.application.ArtworkImageNotFoundException;
 import com.curatium.artwork.application.ArtworkImageUnavailableException;
 import com.curatium.artwork.application.InvalidArtworkImageRequestException;
 import com.curatium.artwork.application.InvalidMuseumSearchRequestException;
-import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
+import com.curatium.artwork.integration.MuseumProviderIntegrationException;
 import com.curatium.exhibition.application.ExhibitionNotEditableException;
 import com.curatium.exhibition.application.ExhibitionItemNotFoundException;
 import com.curatium.exhibition.application.ExhibitionCapacityExceededException;
@@ -265,8 +265,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @ExceptionHandler(ArtInstituteIntegrationException.class)
-    public ResponseEntity<Object> handleMuseumServiceFailure(ArtInstituteIntegrationException exception) {
+    @ExceptionHandler(MuseumProviderIntegrationException.class)
+    public ResponseEntity<Object> handleMuseumServiceFailure(MuseumProviderIntegrationException exception) {
         return response(
                 HttpStatus.SERVICE_UNAVAILABLE,
                 "MUSEUM_SERVICE_UNAVAILABLE",
