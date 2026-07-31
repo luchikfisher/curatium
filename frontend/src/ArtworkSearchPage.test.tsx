@@ -23,8 +23,8 @@ function searchArtwork(overrides: Record<string, unknown> = {}) {
     artistDisplay: 'James McNeill Whistler',
     dateDisplay: '1875',
     mediumDisplay: 'Oil on canvas',
-    thumbnailUrl: 'https://images.example/thumbnail.jpg',
-    imageUrl: 'https://images.example/full.jpg',
+    thumbnailUrl: '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
+    imageUrl: '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
     sourceUrl: 'https://museum.example/artworks/154235',
     creditLine: 'Museum collection',
     publicDomain: true,
@@ -88,7 +88,11 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' })).toHaveAttribute(
+      'src',
+      '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
+    )
+    expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' })).toHaveAttribute('loading', 'lazy')
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/museum/artworks?q=night&page=1&size=20', expect.any(Object))
   })
 
@@ -234,6 +238,10 @@ describe('museum artwork search and add flow', () => {
     expect(await screen.findByText('Already added')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Committed museum title' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Thumbnail of Committed museum title' })).toHaveAttribute(
+      'src',
+      '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
+    )
     expect(screen.getByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1/items', expect.objectContaining({
       method: 'POST',

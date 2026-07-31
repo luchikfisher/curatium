@@ -12,8 +12,8 @@ function artwork(overrides: Record<string, unknown> = {}) {
     artistDisplay: 'James McNeill Whistler',
     dateDisplay: '1875',
     mediumDisplay: 'Oil on canvas',
-    thumbnailUrl: 'https://images.example/thumbnail.jpg',
-    imageUrl: 'https://images.example/full.jpg',
+    thumbnailUrl: '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
+    imageUrl: '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
     sourceUrl: 'https://museum.example/artworks/154235',
     creditLine: 'Museum collection',
     publicDomain: true,
@@ -77,6 +77,10 @@ describe('curator exhibition preview', () => {
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
     expect(screen.getByText('This draft is visible only in the curator workspace.')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Cover artwork: Nocturne' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Cover artwork: Nocturne' })).toHaveAttribute(
+      'src',
+      '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
+    )
     expect(screen.getByText('Note for artwork 1.')).toBeInTheDocument()
     expect(screen.getByText('Artist unknown')).toBeInTheDocument()
     expect(screen.getAllByText('Public domain')).toHaveLength(2)

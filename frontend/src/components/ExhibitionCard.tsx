@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { ArtworkImage } from './ArtworkImage'
 import type { ExhibitionSummary } from '../features/exhibitions/types'
 
 export function ExhibitionCard({
@@ -17,15 +18,12 @@ export function ExhibitionCard({
 
   return (
     <article className="exhibition-card">
-      {exhibition.coverImageUrl ? (
-        <img
-          src={exhibition.coverImageUrl}
-          alt=""
-          className="exhibition-card__image"
-        />
-      ) : (
-        <div className="exhibition-card__image placeholder-image" aria-hidden="true" />
-      )}
+      <ArtworkImage
+        src={exhibition.coverImageUrl}
+        decorative
+        loading="lazy"
+        className="exhibition-card__image"
+      />
       <div className="exhibition-card__body">
         {curator && (
           <span className={`status status--${exhibition.status.toLowerCase()}`}>

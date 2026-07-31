@@ -11,7 +11,7 @@ function artwork(overrides: Record<string, unknown> = {}) {
     artistDisplay: 'James McNeill Whistler',
     dateDisplay: '1875',
     mediumDisplay: 'Oil on canvas',
-    imageUrl: 'https://images.example/nocturne.jpg',
+    imageUrl: '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
     sourceUrl: 'https://museum.example/artworks/nocturne',
     creditLine: 'Museum collection',
     ...overrides,
@@ -72,6 +72,10 @@ describe('public exhibition view', () => {
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Cover artwork: Nocturne' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })).toHaveAttribute(
+      'src',
+      '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
+    )
     expect(screen.getAllByText('James McNeill Whistler')).toHaveLength(2)
     expect(screen.getByText('1875')).toBeInTheDocument()
     expect(screen.getByText('Oil on canvas')).toBeInTheDocument()
