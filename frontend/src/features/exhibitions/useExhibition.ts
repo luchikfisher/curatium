@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FrontendError } from '../../api/errors'
-import type { ExhibitionDetail } from './types'
 
-interface ExhibitionQuery {
-  data: ExhibitionDetail | null
+interface ExhibitionQuery<T> {
+  data: T | null
   error: FrontendError | Error | null
   retry: () => void
-  replace: (exhibition: ExhibitionDetail) => void
+  replace: (exhibition: T) => void
 }
 
-export function useExhibition(
+export function useExhibition<T>(
   exhibitionId: number | null,
-  load: (exhibitionId: number, signal: AbortSignal) => Promise<ExhibitionDetail>,
-): ExhibitionQuery {
-  const [data, setData] = useState<ExhibitionDetail | null>(null)
+  load: (exhibitionId: number, signal: AbortSignal) => Promise<T>,
+): ExhibitionQuery<T> {
+  const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<FrontendError | Error | null>(null)
   const [attempt, setAttempt] = useState(0)
 
@@ -23,7 +22,7 @@ export function useExhibition(
     setAttempt((value) => value + 1)
   }, [])
 
-  const replace = useCallback((exhibition: ExhibitionDetail) => {
+  const replace = useCallback((exhibition: T) => {
     setData(exhibition)
     setError(null)
   }, [])
