@@ -12,6 +12,7 @@ import com.curatium.artwork.application.ArtworkNotImportableException;
 import com.curatium.artwork.domain.Artwork;
 import com.curatium.artwork.domain.ArtworkSource;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
+import com.curatium.artwork.integration.cleveland.ClevelandMuseumIntegrationException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -52,6 +53,9 @@ class ArtworkApiIntegrationTests {
     private static final AtomicInteger DETAIL_REQUESTS = new AtomicInteger();
     private static final AtomicInteger SEARCH_STATUS = new AtomicInteger();
     private static final AtomicReference<String> SEARCH_QUERY = new AtomicReference<>();
+    private static final AtomicReference<String> CLEVELAND_DETAIL_BODY = new AtomicReference<>();
+    private static final AtomicInteger CLEVELAND_DETAIL_STATUS = new AtomicInteger();
+    private static final AtomicInteger CLEVELAND_DETAIL_REQUESTS = new AtomicInteger();
     private static final AtomicReference<CountDownLatch> DETAIL_REQUEST_BARRIER = new AtomicReference<>();
     private static final AtomicReference<CountDownLatch> DETAIL_RESPONSE_GATE = new AtomicReference<>();
     private static final ExecutorService MUSEUM_SERVER_EXECUTOR = Executors.newFixedThreadPool(4);
@@ -95,6 +99,9 @@ class ArtworkApiIntegrationTests {
         DETAIL_REQUESTS.set(0);
         SEARCH_STATUS.set(200);
         SEARCH_QUERY.set(null);
+        CLEVELAND_DETAIL_BODY.set(clevelandArtworkDetail());
+        CLEVELAND_DETAIL_STATUS.set(200);
+        CLEVELAND_DETAIL_REQUESTS.set(0);
         DETAIL_REQUEST_BARRIER.set(null);
         DETAIL_RESPONSE_GATE.set(null);
     }
@@ -113,8 +120,10 @@ class ArtworkApiIntegrationTests {
                 .andExpect(jsonPath("$.items[0].source").value("CLEVELAND_MUSEUM_OF_ART"))
                 .andExpect(jsonPath("$.items[0].externalId").value("1947.209"))
                 .andExpect(jsonPath("$.items[0].publicDomain").value(true))
-                .andExpect(jsonPath("$.items[0].thumbnailUrl").isEmpty())
-                .andExpect(jsonPath("$.items[0].imageUrl").isEmpty());
+                .andExpect(jsonPath("$.items[0].thumbnailUrl")
+                        .value("/api/artwork-images/cleveland/1947.209/thumbnail"))
+                .andExpect(jsonPath("$.items[0].imageUrl")
+                        .value("/api/artwork-images/cleveland/1947.209/display"));
         assertEquals("q=night&cc0=1&has_image=1&limit=10&skip=10",
                 SEARCH_QUERY.get());
 
@@ -164,6 +173,68 @@ class ArtworkApiIntegrationTests {
         assertEquals(firstId, secondId);
         assertEquals(1, DETAIL_REQUESTS.get());
         assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
+    }
+
+    @Test
+    void importsAndReusesAClevelandArtworkSnapshotWithLocalImagePaths() {
+        Artwork first = importClevelandArtwork("1947.209");
+        CLEVELAND_DETAIL_STATUS.set(503);
+        Artwork second = importClevelandArtwork("1947.209");
+
+        assertEquals(first.getId(), second.getId());
+        assertEquals(ArtworkSource.CLEVELAND_MUSEUM_OF_ART, first.getSource());
+        assertEquals("The Large Plane Trees", first.getTitle());
+        assertEquals("Vincent van Gogh", first.getArtistDisplay());
+        assertEquals("1889", first.getDateDisplay());
+        assertEquals("oil on fabric — 73.4 x 91.8 cm", first.getMediumDisplay());
+        assertEquals("/api/artwork-images/cleveland/1947.209/thumbnail", first.getThumbnailUrl());
+        assertEquals("/api/artwork-images/cleveland/1947.209/display", first.getImageUrl());
+        assertEquals(1, CLEVELAND_DETAIL_REQUESTS.get());
+        assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
+    }
+
+    @Test
+    void importsClevelandArtworkWithNullableOptionalMetadata() {
+        CLEVELAND_DETAIL_BODY.set("""
+                {
+                  "data": {
+                    "id": 125249,
+                    "accession_number": "1947.209",
+                    "share_license_status": "CC0",
+                    "title": "The Large Plane Trees",
+                    "images": {"web": {"url": "https://openaccess-cdn.clevelandart.org/1947.209/1947.209_web.jpg"}}
+                  }
+                }
+                """);
+
+        Artwork artwork = importClevelandArtwork("1947.209");
+
+        assertEquals(null, artwork.getArtistDisplay());
+        assertEquals(null, artwork.getDateDisplay());
+        assertEquals(null, artwork.getMediumDisplay());
+        assertEquals(null, artwork.getSourceUrl());
+        assertEquals(null, artwork.getCreditLine());
+    }
+
+    @Test
+    void rejectsInvalidMismatchedAndMalformedClevelandImportRecords() {
+        ArtworkNotImportableException invalidIdentifier = assertThrows(
+                ArtworkNotImportableException.class,
+                () -> importClevelandArtwork("../../not-an-accession")
+        );
+        assertEquals("Artwork identifier must be a valid Cleveland accession number.", invalidIdentifier.getMessage());
+        assertEquals(0, CLEVELAND_DETAIL_REQUESTS.get());
+
+        CLEVELAND_DETAIL_BODY.set(clevelandArtworkDetail().replace("\"1947.209\"", "\"2020.1\""));
+        ArtworkNotImportableException mismatch = assertThrows(
+                ArtworkNotImportableException.class,
+                () -> importClevelandArtwork("1947.209")
+        );
+        assertEquals("The provider returned a different artwork.", mismatch.getMessage());
+
+        CLEVELAND_DETAIL_BODY.set("{\"data\": {\"accession_number\": \"1947.209\"}}");
+        assertThrows(ClevelandMuseumIntegrationException.class, () -> importClevelandArtwork("1947.209"));
+        assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
     }
 
     @Test
@@ -253,6 +324,10 @@ class ArtworkApiIntegrationTests {
         return artworkImportService.importArtwork(ArtworkSource.ART_INSTITUTE_OF_CHICAGO, externalId);
     }
 
+    private Artwork importClevelandArtwork(String externalId) {
+        return artworkImportService.importArtwork(ArtworkSource.CLEVELAND_MUSEUM_OF_ART, externalId);
+    }
+
     private static HttpServer startMuseumServer() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -261,8 +336,13 @@ class ArtworkApiIntegrationTests {
                 writeJson(exchange, SEARCH_STATUS.get(), searchResponse());
             });
             server.createContext("/api/artworks/", exchange -> {
-                SEARCH_QUERY.set(exchange.getRequestURI().getQuery());
-                writeJson(exchange, SEARCH_STATUS.get(), clevelandSearchResponse());
+                if ("/api/artworks/".equals(exchange.getRequestURI().getPath())) {
+                    SEARCH_QUERY.set(exchange.getRequestURI().getQuery());
+                    writeJson(exchange, SEARCH_STATUS.get(), clevelandSearchResponse());
+                    return;
+                }
+                CLEVELAND_DETAIL_REQUESTS.incrementAndGet();
+                writeJson(exchange, CLEVELAND_DETAIL_STATUS.get(), CLEVELAND_DETAIL_BODY.get());
             });
             server.createContext("/artworks/", exchange -> {
                 DETAIL_REQUESTS.incrementAndGet();
@@ -352,6 +432,26 @@ class ArtworkApiIntegrationTests {
                     "image_id": "d7df2633-3b40-f570-c906-211503a37cde",
                     "credit_line": "Searle Family Trust",
                     "is_public_domain": true
+                  }
+                }
+                """;
+    }
+
+    private static String clevelandArtworkDetail() {
+        return """
+                {
+                  "data": {
+                    "id": 125249,
+                    "accession_number": "1947.209",
+                    "share_license_status": "CC0",
+                    "title": "The Large Plane Trees",
+                    "creators": [{"description": "Vincent van Gogh"}],
+                    "creation_date": "1889",
+                    "technique": "oil on fabric",
+                    "measurements": "73.4 x 91.8 cm",
+                    "url": "https://clevelandart.org/art/1947.209",
+                    "creditline": "The Severance and Greta Millikin Purchase Fund",
+                    "images": {"web": {"url": "https://openaccess-cdn.clevelandart.org/1947.209/1947.209_web.jpg"}}
                   }
                 }
                 """;

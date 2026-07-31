@@ -4,6 +4,9 @@ import com.curatium.artwork.domain.Artwork;
 import com.curatium.artwork.domain.ArtworkSource;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteClient;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteArtworkNotFoundException;
+import com.curatium.artwork.integration.cleveland.ClevelandAccessionNumber;
+import com.curatium.artwork.integration.cleveland.ClevelandMuseumArtworkNotFoundException;
+import com.curatium.artwork.integration.cleveland.ClevelandMuseumClient;
 import com.curatium.artwork.persistence.ArtworkRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +19,7 @@ public class ArtworkImportService {
 
     private final ArtworkRepository artworkRepository;
     private final ArtInstituteClient artInstituteClient;
+    private final ClevelandMuseumClient clevelandMuseumClient;
     private final TransactionTemplate transactionTemplate;
 
     public Artwork importArtwork(ArtworkSource source, String externalId) {
@@ -28,24 +32,11 @@ public class ArtworkImportService {
             String externalId
     ) {
         String normalizedExternalId = externalId.trim();
-        if (source != ArtworkSource.ART_INSTITUTE_OF_CHICAGO) {
-            throw new ArtworkNotImportableException(
-                    "This artwork source is not supported."
-            );
-        }
-
         if (findLocalArtwork(source, normalizedExternalId).isPresent()) {
             return new ArtworkImportPreparation(source, normalizedExternalId, null);
         }
 
-        MuseumArtworkSearchResult artworkDetails;
-        try {
-            artworkDetails = artInstituteClient.getArtwork(normalizedExternalId);
-        } catch (ArtInstituteArtworkNotFoundException exception) {
-            throw new ArtworkNotImportableException(
-                    "The artwork was not found by the museum provider."
-            );
-        }
+        MuseumArtworkSearchResult artworkDetails = fetchArtworkDetails(source, normalizedExternalId);
 
         if (!normalizedExternalId.equals(artworkDetails.externalId())) {
             throw new ArtworkNotImportableException(
@@ -82,6 +73,28 @@ public class ArtworkImportService {
                         artworkDetails.creditLine()
                 )
         );
+    }
+
+    private MuseumArtworkSearchResult fetchArtworkDetails(ArtworkSource source, String externalId) {
+        try {
+            return switch (source) {
+                case ART_INSTITUTE_OF_CHICAGO -> artInstituteClient.getArtwork(externalId);
+                case CLEVELAND_MUSEUM_OF_ART -> fetchClevelandArtwork(externalId);
+            };
+        } catch (ArtInstituteArtworkNotFoundException | ClevelandMuseumArtworkNotFoundException exception) {
+            throw new ArtworkNotImportableException(
+                    "The artwork was not found by the museum provider."
+            );
+        }
+    }
+
+    private MuseumArtworkSearchResult fetchClevelandArtwork(String externalId) {
+        if (!ClevelandAccessionNumber.isCanonical(externalId)) {
+            throw new ArtworkNotImportableException(
+                    "Artwork identifier must be a valid Cleveland accession number."
+            );
+        }
+        return clevelandMuseumClient.getArtwork(externalId);
     }
 
     public Artwork findOrPersist(ArtworkImportPreparation preparation) {

@@ -3,6 +3,7 @@ package com.curatium.artwork.integration.cleveland;
 import com.curatium.artwork.application.MuseumArtworkSearchPage;
 import com.curatium.artwork.application.MuseumArtworkSearchProvider;
 import com.curatium.artwork.application.MuseumArtworkSearchResult;
+import com.curatium.artwork.application.ClevelandArtworkImageUrlFactory;
 import com.curatium.artwork.domain.ArtworkSource;
 import java.util.List;
 import java.util.Objects;
@@ -11,6 +12,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Component
 @Primary
@@ -71,14 +73,44 @@ public class ClevelandMuseumClient implements MuseumArtworkSearchProvider {
         );
     }
 
+    public MuseumArtworkSearchResult getArtwork(String accessionNumber) {
+        if (!ClevelandAccessionNumber.isCanonical(accessionNumber)) {
+            throw new IllegalArgumentException("Artwork identifier must be a valid Cleveland accession number.");
+        }
+
+        ClevelandMuseumArtworkDetailResponse response;
+        try {
+            response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/artworks/{accessionNumber}")
+                            .build(accessionNumber))
+                    .retrieve()
+                    .body(ClevelandMuseumArtworkDetailResponse.class);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().value() == 404) {
+                throw new ClevelandMuseumArtworkNotFoundException(accessionNumber);
+            }
+            throw unavailable(exception);
+        } catch (RestClientException exception) {
+            throw unavailable(exception);
+        }
+
+        if (response == null || !isUsableCc0Artwork(response.data())) {
+            throw new ClevelandMuseumIntegrationException(
+                    "The Cleveland Museum of Art returned an unusable response."
+            );
+        }
+        return toSearchResult(response.data());
+    }
+
     private boolean isUsableCc0Artwork(ClevelandMuseumArtworkResponse artwork) {
-        return artwork.id() != null
+        return artwork != null
+                && artwork.id() != null
                 && ClevelandAccessionNumber.isCanonical(artwork.accession_number())
                 && !isBlank(artwork.title())
                 && CC0_LICENSE.equals(artwork.share_license_status())
                 && artwork.images() != null
-                && !isBlank(imageUrl(artwork.images().web()))
-                && !isBlank(imageUrl(artwork.images().print()));
+                && !isBlank(imageUrl(artwork.images().web()));
     }
 
     private MuseumArtworkSearchResult toSearchResult(ClevelandMuseumArtworkResponse artwork) {
@@ -89,8 +121,8 @@ public class ClevelandMuseumClient implements MuseumArtworkSearchProvider {
                 creatorDescription(artwork.creators()),
                 blankToNull(artwork.creation_date()),
                 mediumDisplay(artwork.technique(), artwork.measurements()),
-                null,
-                null,
+                ClevelandArtworkImageUrlFactory.thumbnailUrl(artwork.accession_number()),
+                ClevelandArtworkImageUrlFactory.displayUrl(artwork.accession_number()),
                 blankToNull(artwork.url()),
                 blankToNull(artwork.creditline()),
                 true

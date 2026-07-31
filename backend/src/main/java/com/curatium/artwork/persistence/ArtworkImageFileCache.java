@@ -50,7 +50,33 @@ public class ArtworkImageFileCache {
     }
 
     public CachedArtworkImage write(UUID imageId, ArtworkImageVariant variant, byte[] bytes) {
-        Path target = pathFor(imageId, variant);
+        return write(pathFor(imageId, variant), bytes);
+    }
+
+    public Optional<CachedArtworkImage> findCleveland(String accessionNumber, ArtworkImageVariant variant) {
+        return find(pathForCleveland(accessionNumber, variant));
+    }
+
+    public CachedArtworkImage writeCleveland(String accessionNumber, ArtworkImageVariant variant, byte[] bytes) {
+        return write(pathForCleveland(accessionNumber, variant), bytes);
+    }
+
+    private Optional<CachedArtworkImage> find(Path path) {
+        if (!Files.isRegularFile(path)) {
+            return Optional.empty();
+        }
+        try {
+            Optional<byte[]> cachedBytes = readBounded(path);
+            if (cachedBytes.isEmpty() || !ArtworkImageValidator.isValidJpeg(cachedBytes.get())) {
+                return invalidate(path);
+            }
+            return Optional.of(new CachedArtworkImage(cachedBytes.get(), Files.getLastModifiedTime(path).toInstant()));
+        } catch (IOException exception) {
+            throw new ArtworkImageUnavailableException("The local artwork image cache could not be read.", exception);
+        }
+    }
+
+    private CachedArtworkImage write(Path target, byte[] bytes) {
         Path parent = target.getParent();
         try {
             Files.createDirectories(parent);
@@ -69,6 +95,10 @@ public class ArtworkImageFileCache {
 
     private Path pathFor(UUID imageId, ArtworkImageVariant variant) {
         return cacheDirectory.resolve(imageId.toString()).resolve(variant.pathValue() + ".jpg");
+    }
+
+    private Path pathForCleveland(String accessionNumber, ArtworkImageVariant variant) {
+        return cacheDirectory.resolve("cleveland").resolve(accessionNumber).resolve(variant.pathValue() + ".jpg");
     }
 
     private Optional<byte[]> readBounded(Path path) throws IOException {

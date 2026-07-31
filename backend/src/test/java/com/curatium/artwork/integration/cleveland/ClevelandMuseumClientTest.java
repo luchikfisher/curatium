@@ -29,6 +29,7 @@ class ClevelandMuseumClientTest {
     private final AtomicReference<String> responseBody = new AtomicReference<>();
     private final AtomicInteger responseDelayMillis = new AtomicInteger();
     private final AtomicReference<String> requestedQuery = new AtomicReference<>();
+    private final AtomicReference<String> requestedPath = new AtomicReference<>();
 
     private HttpServer server;
     private ClevelandMuseumClient client;
@@ -42,6 +43,7 @@ class ClevelandMuseumClientTest {
         responseStatus.set(200);
         responseDelayMillis.set(0);
         requestedQuery.set(null);
+        requestedPath.set(null);
 
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(250))
@@ -67,7 +69,7 @@ class ClevelandMuseumClientTest {
         assertEquals(2, page.page());
         assertEquals(20, page.pageSize());
         assertTrue(page.hasNextPage());
-        assertEquals(2, page.items().size());
+        assertEquals(3, page.items().size());
 
         MuseumArtworkSearchResult complete = page.items().getFirst();
         assertEquals(ArtworkSource.CLEVELAND_MUSEUM_OF_ART, complete.source());
@@ -76,13 +78,39 @@ class ClevelandMuseumClientTest {
         assertEquals("1889", complete.dateDisplay());
         assertEquals("oil on fabric — Unframed: 73.4 x 91.8 cm", complete.mediumDisplay());
         assertEquals("https://clevelandart.org/art/1947.209", complete.sourceUrl());
-        assertNull(complete.thumbnailUrl());
-        assertNull(complete.imageUrl());
+        assertEquals("/api/artwork-images/cleveland/1947.209/thumbnail", complete.thumbnailUrl());
+        assertEquals("/api/artwork-images/cleveland/1947.209/display", complete.imageUrl());
 
         MuseumArtworkSearchResult partial = page.items().get(1);
         assertNull(partial.artistDisplay());
         assertNull(partial.dateDisplay());
         assertEquals("12.0 x 8.0 cm", partial.mediumDisplay());
+    }
+
+    @Test
+    void mapsAnImportableArtworkRecordFromTheAccessionEndpoint() {
+        responseBody.set(detailResponse());
+
+        MuseumArtworkSearchResult artwork = client.getArtwork("1947.209");
+
+        assertEquals("/api/artworks/1947.209", requestedPath.get());
+        assertEquals("1947.209", artwork.externalId());
+        assertEquals("The Large Plane Trees", artwork.title());
+        assertEquals("/api/artwork-images/cleveland/1947.209/thumbnail", artwork.thumbnailUrl());
+        assertEquals("/api/artwork-images/cleveland/1947.209/display", artwork.imageUrl());
+    }
+
+    @Test
+    void rejectsMissingAndMalformedImportRecords() {
+        responseStatus.set(404);
+        assertThrows(ClevelandMuseumArtworkNotFoundException.class, () -> client.getArtwork("1947.209"));
+
+        responseStatus.set(200);
+        responseBody.set("{\"data\": {\"accession_number\": \"1947.209\"}}");
+        assertThrows(ClevelandMuseumIntegrationException.class, () -> client.getArtwork("1947.209"));
+
+        responseBody.set("{\"data\": null}");
+        assertThrows(ClevelandMuseumIntegrationException.class, () -> client.getArtwork("1947.209"));
     }
 
     @Test
@@ -229,6 +257,7 @@ class ClevelandMuseumClientTest {
     }
 
     private void respond(HttpExchange exchange) throws IOException {
+        requestedPath.set(exchange.getRequestURI().getPath());
         requestedQuery.set(exchange.getRequestURI().getQuery());
         try {
             Thread.sleep(responseDelayMillis.get());
@@ -287,11 +316,29 @@ class ClevelandMuseumClientTest {
                     },
                     {
                       "id": 202,
+                      "accession_number": "2020.2",
                       "share_license_status": "CC0",
                       "title": "No print derivative",
                       "images": {"web": {"url": "https://example.test/web.jpg"}}
                     }
                   ]
+                }
+                """;
+    }
+
+    private String detailResponse() {
+        return """
+                {
+                  "data": {
+                    "id": 125249,
+                    "accession_number": "1947.209",
+                    "share_license_status": "CC0",
+                    "title": "The Large Plane Trees",
+                    "creators": [{"description": "Vincent van Gogh"}],
+                    "images": {
+                      "web": {"url": "https://openaccess-cdn.clevelandart.org/1947.209/1947.209_web.jpg"}
+                    }
+                  }
                 }
                 """;
     }

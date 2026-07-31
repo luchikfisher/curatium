@@ -16,6 +16,10 @@ import com.curatium.artwork.application.ArtworkImageValidator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -33,6 +37,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -40,8 +45,9 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.ObjectMapper;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Testcontainers
 class ArtworkImageApiIntegrationTests {
@@ -64,12 +70,21 @@ class ArtworkImageApiIntegrationTests {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @LocalServerPort
+    private int port;
+
     @DynamicPropertySource
     static void imageProperties(DynamicPropertyRegistry registry) {
         registry.add("curatium.art-institute.base-url", () -> "http://localhost:" + IMAGE_SERVER.getAddress().getPort());
         registry.add("curatium.art-institute.iiif-base-url", () -> "http://localhost:" + IMAGE_SERVER.getAddress().getPort() + "/iiif/2");
         registry.add("curatium.art-institute.read-timeout", () -> "2s");
         registry.add("curatium.art-institute.image-cache-directory", CACHE_DIRECTORY::toString);
+        registry.add("curatium.cleveland-museum.base-url", () -> "http://localhost:" + IMAGE_SERVER.getAddress().getPort());
+        registry.add("curatium.cleveland-museum.image-base-url", () -> "http://localhost:" + IMAGE_SERVER.getAddress().getPort() + "/cdn");
+        registry.add("curatium.cleveland-museum.read-timeout", () -> "2s");
     }
 
     @AfterAll
@@ -128,6 +143,33 @@ class ArtworkImageApiIntegrationTests {
     }
 
     @Test
+    void appliesNoStoreToFrameworkGeneratedClevelandImageRouteErrorsOverHttp() throws Exception {
+        HttpResponse<String> notFound = sendHttpRequest(
+                "GET",
+                "/api/artwork-images/cleveland/1947.209/display/extra"
+        );
+        assertEquals(404, notFound.statusCode());
+        assertEquals("no-store", notFound.headers().firstValue("Cache-Control").orElse(null));
+        assertEquals("NOT_FOUND", objectMapper.readTree(notFound.body()).get("code").asString());
+
+        HttpResponse<String> methodNotAllowed = sendHttpRequest(
+                "POST",
+                "/api/artwork-images/cleveland/1947.209/display"
+        );
+        assertEquals(405, methodNotAllowed.statusCode());
+        assertEquals("GET", methodNotAllowed.headers().firstValue("Allow").orElse(null));
+        assertEquals("no-store", methodNotAllowed.headers().firstValue("Cache-Control").orElse(null));
+        assertEquals("METHOD_NOT_ALLOWED", objectMapper.readTree(methodNotAllowed.body()).get("code").asString());
+
+        HttpResponse<String> success = sendHttpRequest(
+                "GET",
+                "/api/artwork-images/cleveland/2026.1/thumbnail"
+        );
+        assertEquals(200, success.statusCode());
+        assertEquals("max-age=86400, public", success.headers().firstValue("Cache-Control").orElse(null));
+    }
+
+    @Test
     void servesValidatedJpegThenReusesTheFilesystemCacheWithStableValidators() throws Exception {
         String path = "/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail";
         MvcResult first = mockMvc.perform(get(path))
@@ -147,6 +189,93 @@ class ArtworkImageApiIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(header().string("ETag", eTag));
         assertEquals(1, REQUESTS.get());
+    }
+
+    @Test
+    void servesClevelandWebImagesForBothVariantsWithCacheValidators() throws Exception {
+        String path = "/api/artwork-images/cleveland/1947.209/thumbnail";
+        MvcResult first = mockMvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "image/jpeg"))
+                .andExpect(header().exists("ETag"))
+                .andExpect(header().string("Cache-Control", "max-age=86400, public"))
+                .andReturn();
+        String eTag = first.getResponse().getHeader("ETag");
+        assertEquals(1, REQUESTS.get());
+
+        RESPONSE_STATUS.set(503);
+        mockMvc.perform(get(path).header("If-None-Match", eTag))
+                .andExpect(status().isNotModified())
+                .andExpect(header().string("ETag", eTag));
+        mockMvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", eTag));
+        assertEquals(1, REQUESTS.get());
+
+        mockMvc.perform(get("/api/artwork-images/cleveland/1947.209/display"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("ARTWORK_IMAGE_UNAVAILABLE"));
+        assertEquals(2, REQUESTS.get());
+    }
+
+    @Test
+    void validatesClevelandImagePathsWithoutAnyUpstreamRequest() throws Exception {
+        mockMvc.perform(get("/api/artwork-images/cleveland/.invalid/thumbnail"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        mockMvc.perform(get("/api/artwork-images/cleveland/1947.209%2Fexample.test/thumbnail"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string("Cache-Control", "no-store"));
+        mockMvc.perform(get("/api/artwork-images/cleveland/1947.209/original"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string("Cache-Control", "no-store"));
+        assertEquals(0, REQUESTS.get());
+    }
+
+    @Test
+    void coalescesClevelandImageRequestsPerAccessionAndVariant() throws Exception {
+        String path = "/api/artwork-images/cleveland/2020.1/display";
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        REQUEST_STARTED.set(started);
+        RELEASE_RESPONSE.set(release);
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        try {
+            Future<MvcResult> first = callers.submit(() -> mockMvc.perform(get(path)).andReturn());
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+            Future<MvcResult> second = callers.submit(() -> mockMvc.perform(get(path)).andReturn());
+            assertEquals(1, REQUESTS.get());
+            release.countDown();
+            assertEquals(200, first.get(3, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(200, second.get(3, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(1, REQUESTS.get());
+        } finally {
+            release.countDown();
+            callers.shutdownNow();
+        }
+    }
+
+    @Test
+    void mapsClevelandProviderFailuresAndInvalidResponsesToStructuredImageErrors() throws Exception {
+        assertClevelandFailure("1999.404", 404, "image/jpeg", JPEG, 404, "ARTWORK_IMAGE_NOT_FOUND");
+        assertClevelandFailure("1999.403", 403, "text/html", "challenge".getBytes(), 503, "ARTWORK_IMAGE_UNAVAILABLE");
+        assertClevelandFailure("1999.429", 429, "text/html", "rate limited".getBytes(), 503, "ARTWORK_IMAGE_UNAVAILABLE");
+        assertClevelandFailure("1999.500", 500, "image/jpeg", JPEG, 503, "ARTWORK_IMAGE_UNAVAILABLE");
+        assertClevelandFailure("1999.302", 302, "image/jpeg", JPEG, 503, "ARTWORK_IMAGE_UNAVAILABLE");
+        assertClevelandFailure("1999.mime", 200, "text/html", "challenge".getBytes(), 503, "ARTWORK_IMAGE_UNAVAILABLE");
+        assertClevelandFailure("1999.jpeg", 200, "image/jpeg", "not-a-jpeg".getBytes(), 503, "ARTWORK_IMAGE_UNAVAILABLE");
+
+        byte[] oversized = new byte[ArtworkImageValidator.MAXIMUM_IMAGE_BYTES + 1];
+        oversized[0] = (byte) 0xff;
+        oversized[1] = (byte) 0xd8;
+        oversized[2] = (byte) 0xff;
+        oversized[oversized.length - 2] = (byte) 0xff;
+        oversized[oversized.length - 1] = (byte) 0xd9;
+        assertClevelandFailure("1999.large", 200, "image/jpeg", oversized, 503, "ARTWORK_IMAGE_UNAVAILABLE");
+
+        RESPONSE_DELAY_MILLIS.set(2_500);
+        assertClevelandFailure("1999.timeout", 200, "image/jpeg", JPEG, 503, "ARTWORK_IMAGE_UNAVAILABLE");
     }
 
     @Test
@@ -276,10 +405,35 @@ class ArtworkImageApiIntegrationTests {
                 .andExpect(header().string("Cache-Control", "no-store"));
     }
 
+    private HttpResponse<String> sendHttpRequest(String method, String path) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .method(method, HttpRequest.BodyPublishers.noBody())
+                .build();
+        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private void assertClevelandFailure(
+            String accessionNumber,
+            int upstreamStatus,
+            String contentType,
+            byte[] body,
+            int expectedStatus,
+            String expectedCode
+    ) throws Exception {
+        RESPONSE_STATUS.set(upstreamStatus);
+        CONTENT_TYPE.set(contentType);
+        RESPONSE_BODY.set(body);
+        mockMvc.perform(get("/api/artwork-images/cleveland/{accessionNumber}/display", accessionNumber))
+                .andExpect(status().is(expectedStatus))
+                .andExpect(jsonPath("$.code").value(expectedCode))
+                .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
     private static HttpServer startImageServer() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
             server.createContext("/iiif/2/", ArtworkImageApiIntegrationTests::writeImage);
+            server.createContext("/cdn/", ArtworkImageApiIntegrationTests::writeImage);
             server.start();
             return server;
         } catch (IOException exception) {

@@ -20,5 +20,6 @@ curatium:
     image-cache-directory: ${CURATIUM_ARTWORK_IMAGE_CACHE_DIRECTORY:./.curatium/artwork-images}
   cleveland-museum:
     base-url: ${CURATIUM_CLEVELAND_MUSEUM_BASE_URL:https://openaccess-api.clevelandart.org}
+    image-base-url: ${CURATIUM_CLEVELAND_MUSEUM_IMAGE_BASE_URL:https://openaccess-cdn.clevelandart.org}
     connect-timeout: ${CURATIUM_CLEVELAND_MUSEUM_CONNECT_TIMEOUT:2s}
     read-timeout: ${CURATIUM_CLEVELAND_MUSEUM_READ_TIMEOUT:5s}

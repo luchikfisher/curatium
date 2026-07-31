@@ -24,9 +24,9 @@ public class ArtworkImageErrorCacheControlFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain
     ) throws ServletException, IOException {
+        // Framework-generated 404 and 405 responses can commit during dispatch, so establish
+        // the error-safe default before they are written. Successful controllers replace it.
+        response.setHeader("Cache-Control", "no-store");
         filterChain.doFilter(request, response);
-        if (response.getStatus() >= HttpServletResponse.SC_BAD_REQUEST) {
-            response.setHeader("Cache-Control", "no-store");
-        }
     }
 }

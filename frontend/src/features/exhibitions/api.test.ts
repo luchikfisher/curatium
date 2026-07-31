@@ -191,7 +191,7 @@ describe('exhibition detail requests', () => {
 })
 
 describe('museum search requests', () => {
-  it('parses Cleveland search results with intentionally unavailable image URLs', async () => {
+  it('parses Cleveland search results with same-origin image URLs', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       items: [{
         source: 'CLEVELAND_MUSEUM_OF_ART',
@@ -200,8 +200,8 @@ describe('museum search requests', () => {
         artistDisplay: 'Vincent van Gogh',
         dateDisplay: '1889',
         mediumDisplay: 'oil on fabric',
-        thumbnailUrl: null,
-        imageUrl: null,
+        thumbnailUrl: '/api/artwork-images/cleveland/1947.209/thumbnail',
+        imageUrl: '/api/artwork-images/cleveland/1947.209/display',
         sourceUrl: 'https://clevelandart.org/art/1947.209',
         creditLine: null,
         publicDomain: true,
@@ -215,8 +215,8 @@ describe('museum search requests', () => {
       items: [expect.objectContaining({
         source: 'CLEVELAND_MUSEUM_OF_ART',
         externalId: '1947.209',
-        thumbnailUrl: null,
-        imageUrl: null,
+        thumbnailUrl: '/api/artwork-images/cleveland/1947.209/thumbnail',
+        imageUrl: '/api/artwork-images/cleveland/1947.209/display',
       })],
       page: 1,
       pageSize: 20,
