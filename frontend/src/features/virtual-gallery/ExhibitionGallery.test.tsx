@@ -1,12 +1,21 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExhibitionGallery, GalleryErrorBoundary } from './ExhibitionGallery'
+import * as webgl from './webgl'
 import type { GalleryExhibition } from './types'
+
+vi.mock('@react-three/fiber', () => ({
+  Canvas: () => {
+    throw new Error('Scene initialization failed')
+  },
+  useFrame: vi.fn(),
+  useThree: vi.fn(),
+}))
 
 const exhibition: GalleryExhibition = {
   id: 1,
   title: 'Gallery test',
-  items: [],
+  items: [{ id: 11, position: 1, artwork: { id: 101, title: 'First artwork', imageUrl: 'https://images.example/first.jpg' } }],
 }
 
 function BrokenScene(): never {
@@ -31,6 +40,21 @@ describe('ExhibitionGallery', () => {
         <BrokenScene />
       </GalleryErrorBoundary>,
     )
+    expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
+  })
+
+  it('removes navigation and keyboard controls when the gallery scene fails', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+
+    render(<ExhibitionGallery exhibition={exhibition} headingLevel={1} fallback={<p>Standard exhibition content</p>} />)
+
+    expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Artwork navigation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Previous artwork' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next artwork' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'ArrowRight' })
     expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
   })
 

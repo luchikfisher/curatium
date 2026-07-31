@@ -184,6 +184,13 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .virtual-gallery__header .text-link { justify-self: start; border: 0; padding: 0; background: transparent; cursor: pointer; }
 .virtual-gallery__canvas { display: block; width: 100% !important; height: clamp(22rem, 65vh, 42rem) !important; border: 1px solid var(--line); background: #e7e4dc; }
 .virtual-gallery__fallback { margin: 1.5rem 0; color: var(--muted); font-style: italic; }
+.gallery-navigation { display: grid; gap: .9rem; margin-top: 1rem; border: 1px solid var(--line); padding: 1rem; background: var(--paper); }
+.gallery-navigation:focus-visible { outline-offset: 4px; }
+.gallery-navigation__current, .gallery-navigation__hint { margin: 0; }
+.gallery-navigation__current { font-family: Georgia, "Times New Roman", serif; font-size: 1.2rem; }
+.gallery-navigation__controls { display: flex; flex-wrap: wrap; gap: .75rem; }
+.gallery-navigation__controls .button-secondary { margin: 0; }
+.gallery-navigation__hint { color: var(--muted); font-size: .9rem; line-height: 1.45; }
 .artwork-search-page { padding-bottom: 6rem; }
 .artwork-search-section { padding: 2rem 0; border-top: 1px solid var(--line); }
 .artwork-search-section h2 { margin: 0 0 1.5rem; font-size: 1.8rem; }
