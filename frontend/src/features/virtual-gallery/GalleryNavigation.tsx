@@ -1,14 +1,20 @@
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, RefObject } from 'react'
 import type { SlottedArtwork } from './types'
 
 export function GalleryNavigation({
   assignments,
   selectedIndex,
   onSelect,
+  onOpenInformation,
+  informationOpen = false,
+  informationButtonRef,
 }: {
   assignments: readonly SlottedArtwork[]
   selectedIndex: number
   onSelect: (index: number) => void
+  onOpenInformation?: () => void
+  informationOpen?: boolean
+  informationButtonRef?: RefObject<HTMLButtonElement | null>
 }) {
   const current = assignments[selectedIndex] ?? null
   const hasPrevious = selectedIndex > 0
@@ -41,6 +47,18 @@ export function GalleryNavigation({
         <button className="button" type="button" disabled={!hasNext} onClick={() => onSelect(selectedIndex + 1)}>
           Next artwork
         </button>
+        {current && onOpenInformation && (
+          <button
+            ref={informationButtonRef}
+            className="button button-secondary"
+            type="button"
+            aria-expanded={informationOpen}
+            aria-label={`Open information for artwork ${selectedIndex + 1} of ${assignments.length}: ${current.item.artwork.title}`}
+            onClick={onOpenInformation}
+          >
+            Artwork information
+          </button>
+        )}
       </div>
       <p className="gallery-navigation__hint">With this navigation focused, use Left and Right Arrow keys to move through artworks.</p>
     </nav>

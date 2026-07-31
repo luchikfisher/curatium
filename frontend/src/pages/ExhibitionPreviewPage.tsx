@@ -104,6 +104,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
       <LazyExhibitionGallery
         exhibition={exhibition}
         fallback={<p className="virtual-gallery__fallback">The standard curator preview is shown below.</p>}
+        exitAction={<Link className="text-link" to={`/exhibitions/${exhibition.id}/edit`}>Return to exhibition editor</Link>}
       />
       <section className="preview-publication" aria-labelledby="preview-publication-heading">
         <h2 id="preview-publication-heading">Publication details</h2>

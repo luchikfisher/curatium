@@ -2,17 +2,25 @@ export interface GalleryArtwork {
   id: number
   title: string
   imageUrl: string
+  artistDisplay?: string | null
+  dateDisplay?: string | null
+  mediumDisplay?: string | null
+  sourceUrl?: string | null
+  creditLine?: string | null
 }
 
 export interface GalleryItem {
   id: number
   position: number
+  curatorialNote?: string | null
   artwork: GalleryArtwork
 }
 
 export interface GalleryExhibition {
   id: number
   title: string
+  summary?: string | null
+  introduction?: string | null
   items: GalleryItem[]
 }
 

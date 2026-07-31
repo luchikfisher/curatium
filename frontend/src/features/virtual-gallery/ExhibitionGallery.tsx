@@ -6,6 +6,7 @@ import { ENTRY_CAMERA_POSITION, ENTRY_CAMERA_TARGET } from './geometry'
 import { assignArtworkSlots, fitArtwork } from './slots'
 import type { GalleryArtwork, GalleryExhibition, GalleryViewpoint, SlottedArtwork } from './types'
 import { supportsWebGL, watchWebGLContextLoss } from './webgl'
+import { GalleryInformationOverlay } from './GalleryInformationOverlay'
 import { GalleryNavigation } from './GalleryNavigation'
 import { gallerySessionKey } from './session'
 import { cameraTransitionFactor, viewpointForSlot } from './viewpoints'
@@ -14,47 +15,91 @@ export function ExhibitionGallery({
   exhibition,
   fallback,
   headingLevel = 2,
+  exitAction,
 }: {
   exhibition: GalleryExhibition
   fallback: ReactNode
   headingLevel?: 1 | 2
+  exitAction: ReactNode
 }) {
-  return <GalleryInstance key={gallerySessionKey(exhibition)} exhibition={exhibition} fallback={fallback} headingLevel={headingLevel} />
+  const sessionKey = gallerySessionKey(exhibition)
+  return (
+    <GalleryInstance
+      key={sessionKey}
+      sessionKey={sessionKey}
+      exhibition={exhibition}
+      fallback={fallback}
+      headingLevel={headingLevel}
+      exitAction={exitAction}
+    />
+  )
 }
 
 function GalleryInstance({
+  sessionKey,
   exhibition,
   fallback,
   headingLevel = 2,
+  exitAction,
 }: {
+  sessionKey: string
   exhibition: GalleryExhibition
   fallback: ReactNode
   headingLevel?: 1 | 2
+  exitAction: ReactNode
 }) {
   const [showStandardGallery, setShowStandardGallery] = useState(() => !supportsWebGL())
   const assignments = useMemo(() => assignArtworkSlots(exhibition.items), [exhibition.items])
-  const [selectedIndex, setSelectedIndex] = useState(() => assignments.length > 0 ? 0 : -1)
-  const currentSelectedIndex = selectedIndex >= 0 && selectedIndex < assignments.length
-    ? selectedIndex
-    : assignments.length > 0 ? 0 : -1
+  const [tourStarted, setTourStarted] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const [informationOpen, setInformationOpen] = useState(false)
+  const informationButtonRef = useRef<HTMLButtonElement>(null)
+  const restoreInformationFocus = useRef(false)
+  const currentSelectedIndex = !tourStarted
+    ? -1
+    : selectedIndex >= 0 && selectedIndex < assignments.length
+      ? selectedIndex
+      : assignments.length > 0 ? 0 : -1
+  const currentAssignment = assignments[currentSelectedIndex] ?? null
   const viewpoint = viewpointForSlot(currentSelectedIndex)
   const reducedMotion = useReducedMotion()
+
+  useEffect(() => {
+    if (!informationOpen && restoreInformationFocus.current) {
+      informationButtonRef.current?.focus()
+      restoreInformationFocus.current = false
+    }
+  }, [informationOpen])
+
+  const closeInformation = () => {
+    restoreInformationFocus.current = true
+    setInformationOpen(false)
+  }
+
+  const beginTour = () => {
+    if (assignments.length === 0) return
+    setSelectedIndex(0)
+    setTourStarted(true)
+  }
 
   if (showStandardGallery) return <>{fallback}</>
 
   const Heading = headingLevel === 1 ? 'h1' : 'h2'
   return (
-    <section className="virtual-gallery" aria-labelledby={`virtual-gallery-${exhibition.id}`}>
-      <div className="virtual-gallery__header">
-        <p className="eyebrow">Virtual gallery</p>
-        <Heading id={`virtual-gallery-${exhibition.id}`}>{exhibition.title}</Heading>
-        <p>Explore the exhibition in its curated order.</p>
-        <button className="text-link" type="button" onClick={() => setShowStandardGallery(true)}>
-          View as standard gallery
-        </button>
-      </div>
-      <GalleryErrorBoundary resetKey={exhibition.id} fallback={fallback}>
-        <>
+    <GalleryErrorBoundary resetKey={sessionKey} fallback={fallback}>
+      <section className="virtual-gallery" aria-labelledby={`virtual-gallery-${exhibition.id}`}>
+        <div className="virtual-gallery__header">
+          <p className="eyebrow">Virtual gallery</p>
+          <Heading id={`virtual-gallery-${exhibition.id}`}>{exhibition.title}</Heading>
+          <p>{tourStarted ? 'Explore the exhibition in its curated order.' : 'Begin with the curator’s introduction, then visit each artwork in order.'}</p>
+          <div className="virtual-gallery__actions">
+            <button className="text-link" type="button" onClick={() => setShowStandardGallery(true)}>
+              View as standard gallery
+            </button>
+            {exitAction}
+          </div>
+        </div>
+        <div className="virtual-gallery__experience">
           <Canvas
             className="virtual-gallery__canvas"
             camera={{ fov: 52, position: ENTRY_CAMERA_POSITION }}
@@ -68,9 +113,60 @@ function GalleryInstance({
               onContextLost={() => setShowStandardGallery(true)}
             />
           </Canvas>
-          <GalleryNavigation assignments={assignments} selectedIndex={currentSelectedIndex} onSelect={setSelectedIndex} />
-        </>
-      </GalleryErrorBoundary>
+          {!tourStarted && (
+            <GalleryIntroduction
+              exhibition={exhibition}
+              artworkCount={assignments.length}
+              onBegin={beginTour}
+            />
+          )}
+          {informationOpen && currentAssignment && (
+            <GalleryInformationOverlay
+              assignment={currentAssignment}
+              itemIndex={currentSelectedIndex}
+              itemCount={assignments.length}
+              onClose={closeInformation}
+            />
+          )}
+        </div>
+        {tourStarted && (
+          <GalleryNavigation
+            assignments={assignments}
+            selectedIndex={currentSelectedIndex}
+            onSelect={setSelectedIndex}
+            onOpenInformation={() => setInformationOpen(true)}
+            informationOpen={informationOpen}
+            informationButtonRef={informationButtonRef}
+          />
+        )}
+      </section>
+    </GalleryErrorBoundary>
+  )
+}
+
+function GalleryIntroduction({
+  exhibition,
+  artworkCount,
+  onBegin,
+}: {
+  exhibition: GalleryExhibition
+  artworkCount: number
+  onBegin: () => void
+}) {
+  return (
+    <section className="gallery-introduction" aria-labelledby={`gallery-introduction-${exhibition.id}`}>
+      <p className="gallery-information__position">Exhibition introduction</p>
+      <h2 id={`gallery-introduction-${exhibition.id}`}>About this exhibition</h2>
+      {exhibition.summary
+        ? <p className="gallery-introduction__summary">{exhibition.summary}</p>
+        : <p className="gallery-information__empty-copy">No summary has been provided.</p>}
+      {exhibition.introduction
+        ? <p>{exhibition.introduction}</p>
+        : <p className="gallery-information__empty-copy">No introduction has been provided.</p>}
+      <button className="button" type="button" disabled={artworkCount === 0} onClick={onBegin}>
+        Begin tour
+      </button>
+      {artworkCount === 0 && <p className="gallery-information__empty-copy">No artworks are available to tour.</p>}
     </section>
   )
 }
@@ -78,7 +174,7 @@ function GalleryInstance({
 export class GalleryErrorBoundary extends Component<{
   children: ReactNode
   fallback: ReactNode
-  resetKey: number
+  resetKey: string | number
 }, { failed: boolean }> {
   state = { failed: false }
 
@@ -86,7 +182,7 @@ export class GalleryErrorBoundary extends Component<{
     return { failed: true }
   }
 
-  componentDidUpdate(previousProps: Readonly<{ resetKey: number }>) {
+  componentDidUpdate(previousProps: Readonly<{ resetKey: string | number }>) {
     if (previousProps.resetKey !== this.props.resetKey && this.state.failed) {
       this.setState({ failed: false })
     }
