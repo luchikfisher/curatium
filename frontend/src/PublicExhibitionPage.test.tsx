@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import * as webgl from './features/virtual-gallery/webgl'
 
 function artwork(overrides: Record<string, unknown> = {}) {
   return {
@@ -57,6 +58,7 @@ function renderAt(path: string) {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('public exhibition view', () => {
@@ -95,6 +97,33 @@ describe('public exhibition view', () => {
     expect(within(artworkList).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       'First committed artwork', 'Second committed artwork', 'Third committed artwork',
     ])
+  })
+
+  it('keeps the complete ten-artwork HTML exhibition usable when WebGL is unavailable', async () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(false)
+    const orderedItems = Array.from({ length: 10 }, (_, index) => item(index + 1, {
+      id: index + 101,
+      title: `Committed artwork ${index + 1}`,
+      sourceUrl: `https://museum.example/artworks/${index + 1}`,
+    })).reverse()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({
+      coverArtworkId: 101,
+      items: orderedItems,
+    }))))
+    renderAt('/visit/1')
+
+    const artworkList = await screen.findByRole('list', { name: 'Exhibition artworks' })
+    expect(within(artworkList).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `Committed artwork ${index + 1}`),
+    )
+    expect(screen.getByRole('img', { name: 'Artwork 10 of 10: Committed artwork 10' })).toBeInTheDocument()
+    expect(within(artworkList).getAllByRole('link', { name: /^View source for artwork \d+ of 10:/ })).toHaveLength(10)
+    expect(screen.getByRole('link', { name: 'View source for artwork 10 of 10: Committed artwork 10' })).toHaveAttribute(
+      'href',
+      'https://museum.example/artworks/10',
+    )
+    expect(screen.getByRole('link', { name: 'Back to exhibitions' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
   })
 
   it('normalizes omitted nullable metadata and renders missing-cover and empty-content states', async () => {

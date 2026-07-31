@@ -62,4 +62,32 @@ describe('apiRequest', () => {
 
     expect(error).toMatchObject({ kind: 'malformed', status: 200 })
   })
+
+  it('maps malformed non-success JSON to a malformed response error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{', { status: 503 })))
+
+    const error = await apiRequest('/api/example').catch((reason: unknown) => reason)
+
+    expect(error).toMatchObject({ kind: 'malformed', status: 503 })
+  })
+
+  it('rejects contract-invalid non-success JSON as malformed while preserving its status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 'MUSEUM_SERVICE_UNAVAILABLE',
+      message: 'The museum service is temporarily unavailable.',
+      fieldErrors: [],
+    }), { status: 503 })))
+
+    const error = await apiRequest('/api/example').catch((reason: unknown) => reason)
+
+    expect(error).toBeInstanceOf(FrontendError)
+    expect(error).toMatchObject({ kind: 'malformed', status: 503, code: undefined, fieldErrors: [] })
+  })
+
+  it('preserves aborted requests so callers can ignore expected cancellation', async () => {
+    const abortError = new DOMException('Aborted', 'AbortError')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortError))
+
+    await expect(apiRequest('/api/example')).rejects.toBe(abortError)
+  })
 })

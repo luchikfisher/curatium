@@ -17,6 +17,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,9 +36,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,6 +50,7 @@ class ArtworkApiIntegrationTests {
     private static final AtomicReference<String> DETAIL_BODY = new AtomicReference<>();
     private static final AtomicInteger DETAIL_STATUS = new AtomicInteger();
     private static final AtomicInteger DETAIL_REQUESTS = new AtomicInteger();
+    private static final AtomicInteger SEARCH_STATUS = new AtomicInteger();
     private static final AtomicReference<String> SEARCH_QUERY = new AtomicReference<>();
     private static final AtomicReference<CountDownLatch> DETAIL_REQUEST_BARRIER = new AtomicReference<>();
     private static final AtomicReference<CountDownLatch> DETAIL_RESPONSE_GATE = new AtomicReference<>();
@@ -59,6 +63,9 @@ class ArtworkApiIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -84,6 +91,7 @@ class ArtworkApiIntegrationTests {
         DETAIL_STATUS.set(200);
         DETAIL_BODY.set(publicArtworkDetail());
         DETAIL_REQUESTS.set(0);
+        SEARCH_STATUS.set(200);
         SEARCH_QUERY.set(null);
         DETAIL_REQUEST_BARRIER.set(null);
         DETAIL_RESPONSE_GATE.set(null);
@@ -110,6 +118,21 @@ class ArtworkApiIntegrationTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("q"));
+    }
+
+    @Test
+    void mapsMuseumSearchProviderFailuresToTheDocumentedRetryableApiError() throws Exception {
+        SEARCH_STATUS.set(503);
+
+        MvcResult result = mockMvc.perform(get("/api/museum/artworks").param("q", "night"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("MUSEUM_SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("The museum service is temporarily unavailable."))
+                .andExpect(jsonPath("$.fieldErrors.length()").value(0))
+                .andExpect(jsonPath("$.timestamp").isString())
+                .andReturn();
+
+        Instant.parse(objectMapper.readTree(result.getResponse().getContentAsString()).get("timestamp").asString());
     }
 
     @Test
@@ -231,7 +254,7 @@ class ArtworkApiIntegrationTests {
             server.setExecutor(MUSEUM_SERVER_EXECUTOR);
             server.createContext("/artworks/search", exchange -> {
                 SEARCH_QUERY.set(exchange.getRequestURI().getQuery());
-                writeJson(exchange, 200, searchResponse());
+                writeJson(exchange, SEARCH_STATUS.get(), searchResponse());
             });
             server.createContext("/artworks/", exchange -> {
                 DETAIL_REQUESTS.incrementAndGet();
