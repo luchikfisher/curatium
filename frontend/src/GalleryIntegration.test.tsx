@@ -1,9 +1,13 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./features/virtual-gallery/LazyExhibitionGallery', () => ({
-  LazyExhibitionGallery: ({ exhibition }: { exhibition: { id: number; title: string } }) => (
-    <p data-testid="shared-gallery">{exhibition.id}: {exhibition.title}</p>
+  LazyExhibitionGallery: ({ exhibition, exitAction }: { exhibition: { id: number; title: string }; exitAction: ReactNode }) => (
+    <div data-testid="shared-gallery">
+      <p>{exhibition.id}: {exhibition.title}</p>
+      {exitAction}
+    </div>
   ),
 }))
 
@@ -55,9 +59,11 @@ describe('gallery integration', () => {
 
     const publicView = renderAt('/visit/1')
     expect(await screen.findByTestId('shared-gallery')).toHaveTextContent('1: Public gallery')
+    expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toHaveAttribute('href', '/')
     publicView.unmount()
 
     renderAt('/exhibitions/2/preview')
     expect(await screen.findByTestId('shared-gallery')).toHaveTextContent('2: Curator gallery')
+    expect(screen.getByRole('link', { name: 'Return to exhibition editor' })).toHaveAttribute('href', '/exhibitions/2/edit')
   })
 })
