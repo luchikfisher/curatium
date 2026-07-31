@@ -1,6 +1,7 @@
 package com.curatium.artwork.integration.artinstitute;
 
 import com.curatium.artwork.application.MuseumArtworkSearchPage;
+import com.curatium.artwork.application.MuseumArtworkSearchProvider;
 import com.curatium.artwork.application.MuseumArtworkSearchResult;
 import com.curatium.artwork.application.ArtworkImageUrlFactory;
 import com.curatium.artwork.domain.ArtworkSource;
@@ -11,7 +12,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 @Component
-public class ArtInstituteClient {
+public class ArtInstituteClient implements MuseumArtworkSearchProvider {
 
     private static final String FIELDS = String.join(",",
             "id",
@@ -30,6 +31,7 @@ public class ArtInstituteClient {
         this.restClient = artInstituteRestClient;
     }
 
+    @Override
     public MuseumArtworkSearchPage search(String query, int page, int pageSize) {
         if (page < 1) {
             throw new IllegalArgumentException("Page must be at least 1.");

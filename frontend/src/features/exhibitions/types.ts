@@ -16,7 +16,7 @@ export interface ExhibitionMetadata {
   introduction: string
 }
 
-export type ArtworkSource = 'ART_INSTITUTE_OF_CHICAGO'
+export type ArtworkSource = 'ART_INSTITUTE_OF_CHICAGO' | 'CLEVELAND_MUSEUM_OF_ART'
 
 export interface ExhibitionArtwork {
   id: number

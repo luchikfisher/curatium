@@ -1,5 +1,6 @@
 import { apiRequest } from '../../api/client'
 import type {
+  ArtworkSource,
   ExhibitionArtwork,
   ExhibitionDetail,
   ExhibitionItem,
@@ -69,11 +70,15 @@ function parseNullableNumber(value: unknown): number | null {
   throw new TypeError('Invalid nullable number')
 }
 
+function isArtworkSource(value: unknown): value is ArtworkSource {
+  return value === 'ART_INSTITUTE_OF_CHICAGO' || value === 'CLEVELAND_MUSEUM_OF_ART'
+}
+
 function parseArtwork(value: unknown): ExhibitionArtwork {
   if (
     !isRecord(value) ||
     typeof value.id !== 'number' ||
-    value.source !== 'ART_INSTITUTE_OF_CHICAGO' ||
+    !isArtworkSource(value.source) ||
     typeof value.externalId !== 'string' ||
     typeof value.title !== 'string' ||
     typeof value.thumbnailUrl !== 'string' ||
@@ -122,7 +127,7 @@ function parseItems(value: unknown): ExhibitionItem[] {
 function parseMuseumArtwork(value: unknown): MuseumArtworkSearchResult {
   if (
     !isRecord(value) ||
-    value.source !== 'ART_INSTITUTE_OF_CHICAGO' ||
+    !isArtworkSource(value.source) ||
     typeof value.externalId !== 'string' ||
     typeof value.title !== 'string' ||
     typeof value.publicDomain !== 'boolean'
