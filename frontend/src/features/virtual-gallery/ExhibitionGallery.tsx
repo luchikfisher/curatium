@@ -1,11 +1,14 @@
-import { Component, Suspense, type ReactNode, useEffect, useMemo, useState } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { Component, Suspense, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Text, useTexture } from '@react-three/drei'
-import { DoubleSide, SRGBColorSpace, type Texture } from 'three'
+import { DoubleSide, SRGBColorSpace, type Texture, Vector3 } from 'three'
 import { ENTRY_CAMERA_POSITION, ENTRY_CAMERA_TARGET } from './geometry'
 import { assignArtworkSlots, fitArtwork } from './slots'
-import type { GalleryArtwork, GalleryExhibition, SlottedArtwork } from './types'
+import type { GalleryArtwork, GalleryExhibition, GalleryViewpoint, SlottedArtwork } from './types'
 import { supportsWebGL, watchWebGLContextLoss } from './webgl'
+import { GalleryNavigation } from './GalleryNavigation'
+import { gallerySessionKey } from './session'
+import { cameraTransitionFactor, viewpointForSlot } from './viewpoints'
 
 export function ExhibitionGallery({
   exhibition,
@@ -16,7 +19,7 @@ export function ExhibitionGallery({
   fallback: ReactNode
   headingLevel?: 1 | 2
 }) {
-  return <GalleryInstance key={exhibition.id} exhibition={exhibition} fallback={fallback} headingLevel={headingLevel} />
+  return <GalleryInstance key={gallerySessionKey(exhibition)} exhibition={exhibition} fallback={fallback} headingLevel={headingLevel} />
 }
 
 function GalleryInstance({
@@ -29,6 +32,13 @@ function GalleryInstance({
   headingLevel?: 1 | 2
 }) {
   const [showStandardGallery, setShowStandardGallery] = useState(() => !supportsWebGL())
+  const assignments = useMemo(() => assignArtworkSlots(exhibition.items), [exhibition.items])
+  const [selectedIndex, setSelectedIndex] = useState(() => assignments.length > 0 ? 0 : -1)
+  const currentSelectedIndex = selectedIndex >= 0 && selectedIndex < assignments.length
+    ? selectedIndex
+    : assignments.length > 0 ? 0 : -1
+  const viewpoint = viewpointForSlot(currentSelectedIndex)
+  const reducedMotion = useReducedMotion()
 
   if (showStandardGallery) return <>{fallback}</>
 
@@ -50,9 +60,15 @@ function GalleryInstance({
           dpr={[1, 1.5]}
           frameloop="demand"
         >
-          <GalleryScene exhibition={exhibition} onContextLost={() => setShowStandardGallery(true)} />
+          <GalleryScene
+            assignments={assignments}
+            viewpoint={viewpoint}
+            reducedMotion={reducedMotion}
+            onContextLost={() => setShowStandardGallery(true)}
+          />
         </Canvas>
       </GalleryErrorBoundary>
+      <GalleryNavigation assignments={assignments} selectedIndex={currentSelectedIndex} onSelect={setSelectedIndex} />
     </section>
   )
 }
@@ -79,27 +95,61 @@ export class GalleryErrorBoundary extends Component<{
   }
 }
 
-function GalleryScene({ exhibition, onContextLost }: { exhibition: GalleryExhibition; onContextLost: () => void }) {
-  const slottedArtworks = assignArtworkSlots(exhibition.items)
+function GalleryScene({
+  assignments,
+  viewpoint,
+  reducedMotion,
+  onContextLost,
+}: {
+  assignments: readonly SlottedArtwork[]
+  viewpoint: GalleryViewpoint | null
+  reducedMotion: boolean
+  onContextLost: () => void
+}) {
   return (
     <>
       <color attach="background" args={['#e7e4dc']} />
       <ambientLight intensity={1.65} />
       <directionalLight position={[2, 5.5, 3]} intensity={1.75} />
-      <EntryCamera />
+      <CameraDirector viewpoint={viewpoint} reducedMotion={reducedMotion} />
       <ContextLossWatcher onContextLost={onContextLost} />
       <GalleryRoom />
-      {slottedArtworks.map((assignment) => <GalleryArtworkSlot key={assignment.item.id} assignment={assignment} />)}
+      {assignments.map((assignment) => <GalleryArtworkSlot key={assignment.item.id} assignment={assignment} />)}
     </>
   )
 }
 
-function EntryCamera() {
+function CameraDirector({ viewpoint, reducedMotion }: { viewpoint: GalleryViewpoint | null; reducedMotion: boolean }) {
   const camera = useThree((state) => state.camera)
+  const invalidate = useThree((state) => state.invalidate)
+  const currentTarget = useRef(new Vector3(...ENTRY_CAMERA_TARGET))
+  const desiredPosition = useRef(new Vector3(...ENTRY_CAMERA_POSITION))
+  const desiredTarget = useRef(new Vector3(...ENTRY_CAMERA_TARGET))
+
   useEffect(() => {
-    camera.lookAt(...ENTRY_CAMERA_TARGET)
-    camera.updateProjectionMatrix()
-  }, [camera])
+    desiredPosition.current.set(...(viewpoint?.position ?? ENTRY_CAMERA_POSITION))
+    desiredTarget.current.set(...(viewpoint?.target ?? ENTRY_CAMERA_TARGET))
+    if (reducedMotion) {
+      camera.position.copy(desiredPosition.current)
+      currentTarget.current.copy(desiredTarget.current)
+      camera.lookAt(currentTarget.current)
+      camera.updateProjectionMatrix()
+    }
+    invalidate()
+  }, [camera, invalidate, reducedMotion, viewpoint])
+
+  useFrame((_state, delta) => {
+    const factor = cameraTransitionFactor(reducedMotion, delta)
+    camera.position.lerp(desiredPosition.current, factor)
+    currentTarget.current.lerp(desiredTarget.current, factor)
+    camera.lookAt(currentTarget.current)
+    if (!reducedMotion && (
+      camera.position.distanceToSquared(desiredPosition.current) > 0.0001 ||
+      currentTarget.current.distanceToSquared(desiredTarget.current) > 0.0001
+    )) {
+      invalidate()
+    }
+  })
   return null
 }
 
@@ -107,6 +157,22 @@ function ContextLossWatcher({ onContextLost }: { onContextLost: () => void }) {
   const canvas = useThree((state) => state.gl.domElement)
   useEffect(() => watchWebGLContextLoss(canvas, onContextLost), [canvas, onContextLost])
   return null
+}
+
+function useReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(() => prefersReducedMotion())
+  useEffect(() => {
+    const query = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    if (!query) return
+    const updatePreference = () => setReducedMotion(query.matches)
+    query.addEventListener('change', updatePreference)
+    return () => query.removeEventListener('change', updatePreference)
+  }, [])
+  return reducedMotion
+}
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }
 
 function GalleryRoom() {

@@ -22,6 +22,11 @@ export interface GallerySlot {
   rotation: [number, number, number]
 }
 
+export interface GalleryViewpoint {
+  position: [number, number, number]
+  target: [number, number, number]
+}
+
 export interface SlottedArtwork {
   item: GalleryItem
   slot: GallerySlot
