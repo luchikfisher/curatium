@@ -6,8 +6,8 @@ import { EditExhibitionPage } from './pages/EditExhibitionPage'
 import { ExhibitionPreviewPage } from './pages/ExhibitionPreviewPage'
 import { NewExhibitionPage } from './pages/NewExhibitionPage'
 import { NotFoundPage } from './pages/NotFoundPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
 import { PublicCataloguePage } from './pages/PublicCataloguePage'
+import { PublicExhibitionPage } from './pages/PublicExhibitionPage'
 
 export const appRouter = createBrowserRouter([
   {
@@ -33,7 +33,7 @@ export const appRouter = createBrowserRouter([
       },
       {
         path: '/visit/:id',
-        element: <PlaceholderPage eyebrow="Visitor entry" title="Exhibition visit" description="The exhibition entry and tour experience will be implemented after the frontend foundation." backTo="/" />,
+        element: <PublicExhibitionPage />,
       },
       { path: '*', element: <NotFoundPage /> },
     ],

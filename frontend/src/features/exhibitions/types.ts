@@ -53,6 +53,34 @@ export interface ExhibitionDetail {
   updatedAt: string
 }
 
+export interface PublicExhibitionArtwork {
+  id: number
+  title: string
+  artistDisplay: string | null
+  dateDisplay: string | null
+  mediumDisplay: string | null
+  imageUrl: string
+  sourceUrl: string | null
+  creditLine: string | null
+}
+
+export interface PublicExhibitionItem {
+  id: number
+  position: number
+  curatorialNote: string | null
+  artwork: PublicExhibitionArtwork
+}
+
+export interface PublicExhibitionDetail {
+  id: number
+  title: string
+  summary: string | null
+  introduction: string | null
+  publishedAt: string | null
+  coverArtworkId: number | null
+  items: PublicExhibitionItem[]
+}
+
 export interface MuseumArtworkSearchResult {
   source: ArtworkSource
   externalId: string

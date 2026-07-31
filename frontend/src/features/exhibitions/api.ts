@@ -8,6 +8,9 @@ import type {
   ExhibitionSummary,
   MuseumArtworkSearchPage,
   MuseumArtworkSearchResult,
+  PublicExhibitionArtwork,
+  PublicExhibitionDetail,
+  PublicExhibitionItem,
 } from './types'
 import { FrontendError } from '../../api/errors'
 
@@ -185,6 +188,63 @@ function parseDetail(value: unknown): ExhibitionDetail {
   }
 }
 
+function parsePublicArtwork(value: unknown): PublicExhibitionArtwork {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'number' ||
+    typeof value.title !== 'string' ||
+    typeof value.imageUrl !== 'string'
+  ) {
+    throw new TypeError('Invalid public exhibition artwork')
+  }
+  return {
+    id: value.id,
+    title: value.title,
+    artistDisplay: parseNullableString(value.artistDisplay),
+    dateDisplay: parseNullableString(value.dateDisplay),
+    mediumDisplay: parseNullableString(value.mediumDisplay),
+    imageUrl: value.imageUrl,
+    sourceUrl: parseNullableString(value.sourceUrl),
+    creditLine: parseNullableString(value.creditLine),
+  }
+}
+
+function parsePublicItem(value: unknown): PublicExhibitionItem {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'number' ||
+    typeof value.position !== 'number'
+  ) {
+    throw new TypeError('Invalid public exhibition item')
+  }
+  return {
+    id: value.id,
+    position: value.position,
+    curatorialNote: parseNullableString(value.curatorialNote),
+    artwork: parsePublicArtwork(value.artwork),
+  }
+}
+
+function parsePublicDetail(value: unknown): PublicExhibitionDetail {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'number' ||
+    typeof value.title !== 'string' ||
+    !Array.isArray(value.items)
+  ) {
+    throw new TypeError('Invalid public exhibition detail')
+  }
+  return {
+    id: value.id,
+    title: value.title,
+    summary: parseNullableString(value.summary),
+    introduction: parseNullableString(value.introduction),
+    publishedAt: parseNullableTimestamp(value.publishedAt),
+    coverArtworkId: parseNullableNumber(value.coverArtworkId),
+    items: value.items.map(parsePublicItem),
+  }
+}
+
 async function getSummaries(
   path: string,
   signal?: AbortSignal,
@@ -227,6 +287,25 @@ export function getExhibition(
     `/api/exhibitions/${exhibitionId}`,
     { signal },
   )
+}
+
+export async function getPublicExhibition(
+  exhibitionId: number,
+  signal?: AbortSignal,
+): Promise<PublicExhibitionDetail> {
+  const exhibition = await apiRequest(
+    `/api/public/exhibitions/${exhibitionId}`,
+    { signal },
+    parsePublicDetail,
+  )
+  if (exhibition === undefined) {
+    throw new FrontendError(
+      'The server returned an empty public exhibition response.',
+      'malformed',
+      204,
+    )
+  }
+  return exhibition
 }
 
 function metadataRequest(
