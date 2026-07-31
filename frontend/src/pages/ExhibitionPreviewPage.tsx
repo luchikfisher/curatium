@@ -56,7 +56,10 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         return
       }
       setPublicationError(reason instanceof Error ? reason : new Error('Unknown publication error'))
-      if (isFrontendError(reason) && reason.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
+      if (
+        isFrontendError(reason) &&
+        (reason.code === 'PUBLISHED_EXHIBITION_READ_ONLY' || reason.code === 'INVALID_PUBLICATION_STATE')
+      ) {
         retry()
       }
     } finally {

@@ -196,13 +196,15 @@ describe('curator exhibition preview', () => {
   })
 
   it('shows server publication prerequisite failures while retaining the draft preview', async () => {
+    const draft = detail()
     vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(draft))
       .mockResolvedValueOnce(respond(error(
         'INVALID_PUBLICATION_STATE',
         'A published exhibition must include at least one artwork.',
         409,
-      ), 409)))
+      ), 409))
+      .mockResolvedValueOnce(respond(draft)))
     renderAt('/exhibitions/1/preview')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
@@ -295,9 +297,9 @@ describe('curator exhibition preview', () => {
     expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
   })
 
-  it('shows repeated publish and unpublish conflicts from the backend', async () => {
+  it('refreshes a stale draft after the server reports that it is already published', async () => {
     const first = item(1)
-    vi.stubGlobal('fetch', vi.fn()
+    const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
       .mockResolvedValueOnce(respond(error('INVALID_PUBLICATION_STATE', 'The exhibition is already published.', 409), 409))
       .mockResolvedValueOnce(respond(detail({
@@ -306,16 +308,42 @@ describe('curator exhibition preview', () => {
         items: [first],
         coverArtworkId: first.artwork.id,
       })))
-      .mockResolvedValueOnce(respond(error('INVALID_PUBLICATION_STATE', 'The exhibition is already a draft.', 409), 409)))
-    const { unmount } = renderAt('/exhibitions/1/preview')
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('The exhibition is already published.')
-    unmount()
+    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
+  })
 
+  it('refreshes a stale published exhibition after the server reports that it is already a draft', async () => {
+    const first = item(1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+      .mockResolvedValueOnce(respond(error('INVALID_PUBLICATION_STATE', 'The exhibition is already a draft.', 409), 409))
+      .mockResolvedValueOnce(respond(detail({
+        status: 'DRAFT',
+        publishedAt: null,
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+    vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/preview')
+
     await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('The exhibition is already a draft.')
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publish exhibition' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
   })
 
   it('moves to the exhibition-not-found state when a publication request reports a missing exhibition', async () => {
