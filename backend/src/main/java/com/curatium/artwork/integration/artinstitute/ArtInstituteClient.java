@@ -2,6 +2,7 @@ package com.curatium.artwork.integration.artinstitute;
 
 import com.curatium.artwork.application.MuseumArtworkSearchPage;
 import com.curatium.artwork.application.MuseumArtworkSearchResult;
+import com.curatium.artwork.application.ArtworkImageUrlFactory;
 import com.curatium.artwork.domain.ArtworkSource;
 import java.util.List;
 import org.springframework.stereotype.Component;
@@ -89,7 +90,7 @@ public class ArtInstituteClient {
         }
 
         if (response == null || response.data() == null || response.config() == null
-                || isBlank(response.config().iiif_url()) || isBlank(response.config().website_url())
+                || isBlank(response.config().website_url())
                 || response.data().id() == null || isBlank(response.data().title())) {
             throw new ArtInstituteIntegrationException(
                     "The Art Institute of Chicago returned an unusable response."
@@ -101,8 +102,7 @@ public class ArtInstituteClient {
 
     private MuseumArtworkSearchPage mapSearchResponse(ArtInstituteSearchResponse response) {
         if (response == null || response.data() == null || response.pagination() == null
-                || response.config() == null || isBlank(response.config().iiif_url())
-                || isBlank(response.config().website_url())) {
+                || response.config() == null || isBlank(response.config().website_url())) {
             throw new ArtInstituteIntegrationException(
                     "The Art Institute of Chicago returned an unusable response."
             );
@@ -126,7 +126,7 @@ public class ArtInstituteClient {
         return artwork.id() != null
                 && !isBlank(artwork.title())
                 && Boolean.TRUE.equals(artwork.is_public_domain())
-                && !isBlank(artwork.image_id());
+                && ArtworkImageUrlFactory.isCanonicalImageId(artwork.image_id());
     }
 
     private MuseumArtworkSearchResult toSearchResult(
@@ -134,6 +134,7 @@ public class ArtInstituteClient {
             ArtInstituteConfigurationResponse configuration
     ) {
         String imageId = artwork.image_id();
+        boolean hasUsableImage = ArtworkImageUrlFactory.isCanonicalImageId(imageId);
         return new MuseumArtworkSearchResult(
                 ArtworkSource.ART_INSTITUTE_OF_CHICAGO,
                 artwork.id().toString(),
@@ -141,17 +142,12 @@ public class ArtInstituteClient {
                 artwork.artist_display(),
                 artwork.date_display(),
                 artwork.medium_display(),
-                isBlank(imageId) ? null : iiifImageUrl(configuration.iiif_url(), imageId, 200),
-                isBlank(imageId) ? null : iiifImageUrl(configuration.iiif_url(), imageId, 843),
+                hasUsableImage ? ArtworkImageUrlFactory.thumbnailUrl(imageId) : null,
+                hasUsableImage ? ArtworkImageUrlFactory.displayUrl(imageId) : null,
                 sourceUrl(configuration.website_url(), artwork.id()),
                 artwork.credit_line(),
                 Boolean.TRUE.equals(artwork.is_public_domain())
         );
-    }
-
-    private String iiifImageUrl(String iiifBaseUrl, String imageId, int width) {
-        return stripTrailingSlash(iiifBaseUrl)
-                + "/" + imageId + "/full/" + width + ",/0/default.jpg";
     }
 
     private String sourceUrl(String websiteUrl, long artworkId) {

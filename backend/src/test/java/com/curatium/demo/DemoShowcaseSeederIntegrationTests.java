@@ -139,7 +139,8 @@ class DemoShowcaseSeederIntegrationTests {
         assertEquals("Self-Portrait", exhibition.getItems().getFirst().getArtwork().getTitle());
         assertEquals("Landscape (The Lock)", exhibition.getItems().get(2).getArtwork().getTitle());
         assertTrue(exhibition.getItems().stream().allMatch(item -> item.getArtwork().isPublicDomain()));
-        assertTrue(exhibition.getItems().stream().allMatch(item -> item.getArtwork().getImageUrl().contains("/iiif/2/")));
+        assertTrue(exhibition.getItems().stream().allMatch(item -> item.getArtwork().getImageUrl()
+                .matches("/api/artwork-images/art-institute/[0-9a-f-]+/display")));
     }
 
     private void assertUnchangedNonDemoExhibition(long exhibitionId) {

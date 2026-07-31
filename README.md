@@ -47,6 +47,23 @@ cd backend
 ./mvnw test
 ```
 
+## Artwork image delivery
+
+Artwork thumbnails and display images are served from Curatium's same-origin
+`/api/artwork-images/...` endpoints. The backend stores a read-through filesystem cache at
+`./.curatium/artwork-images` by default; set `CURATIUM_ARTWORK_IMAGE_CACHE_DIRECTORY` to use a
+different local location.
+
+The packaged demo JPEGs always take precedence, so the opt-in demo showcase remains image-complete
+without contacting the Art Institute provider. Previously cached imported images also remain
+available offline. An uncached artwork image discovered through museum search still requires one
+successful provider fetch; when offline or unavailable, Curatium shows an intentional image
+placeholder rather than requesting the provider from the browser.
+
+Cache eviction and capacity management are intentionally deferred for this trusted local academic
+deployment. They should be added before treating the filesystem cache as a shared or public-service
+asset store.
+
 ## Opt-in demo showcase
 
 The normal application never creates demo records. To prepare a deterministic local showcase,

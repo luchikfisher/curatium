@@ -1,6 +1,9 @@
 package com.curatium.common.error;
 
 import com.curatium.artwork.application.ArtworkNotImportableException;
+import com.curatium.artwork.application.ArtworkImageNotFoundException;
+import com.curatium.artwork.application.ArtworkImageUnavailableException;
+import com.curatium.artwork.application.InvalidArtworkImageRequestException;
 import com.curatium.artwork.application.InvalidMuseumSearchRequestException;
 import com.curatium.artwork.integration.artinstitute.ArtInstituteIntegrationException;
 import com.curatium.exhibition.application.ExhibitionNotEditableException;
@@ -21,6 +24,7 @@ import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
@@ -122,6 +126,39 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "VALIDATION_ERROR",
                 "The request contains invalid values.",
                 List.of(new ApiFieldError(exception.getField(), exception.getMessage()))
+        );
+    }
+
+    @ExceptionHandler(InvalidArtworkImageRequestException.class)
+    public ResponseEntity<Object> handleInvalidArtworkImageRequest(InvalidArtworkImageRequestException exception) {
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                exception.getMessage(),
+                List.of(),
+                artworkImageErrorHeaders()
+        );
+    }
+
+    @ExceptionHandler(ArtworkImageNotFoundException.class)
+    public ResponseEntity<Object> handleArtworkImageNotFound(ArtworkImageNotFoundException exception) {
+        return response(
+                HttpStatus.NOT_FOUND,
+                "ARTWORK_IMAGE_NOT_FOUND",
+                exception.getMessage(),
+                List.of(),
+                artworkImageErrorHeaders()
+        );
+    }
+
+    @ExceptionHandler(ArtworkImageUnavailableException.class)
+    public ResponseEntity<Object> handleArtworkImageUnavailable(ArtworkImageUnavailableException exception) {
+        return response(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "ARTWORK_IMAGE_UNAVAILABLE",
+                "The artwork image is temporarily unavailable.",
+                List.of(),
+                artworkImageErrorHeaders()
         );
     }
 
@@ -361,5 +398,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         );
 
         return new ResponseEntity<>(body, headers, status);
+    }
+
+    private HttpHeaders artworkImageErrorHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setCacheControl(CacheControl.noStore());
+        return headers;
     }
 }
