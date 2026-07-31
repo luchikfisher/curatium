@@ -17,7 +17,7 @@ sequenceDiagram
 
     alt Exhibition is missing, published, or already at capacity
         Service-->>API: Domain exception
-        API-->>FE: 404 or 409 domain error
+        API-->>FE: 404 EXHIBITION_NOT_FOUND, or 409 PUBLISHED_EXHIBITION_READ_ONLY or EXHIBITION_ARTWORK_LIMIT_REACHED
     else Initial exhibition check succeeds
         Service->>Import: prepareImport(source, externalId)
         Import->>DB: Find artwork by source and externalId
@@ -29,51 +29,55 @@ sequenceDiagram
             Import->>AIC: GET authoritative artwork detail
 
             alt Provider request fails
-                AIC-->>Import: Timeout, transport error, malformed response, or 5xx
-                Import-->>API: ArtInstituteIntegrationException
-                API-->>FE: 503 MUSEUM_SERVICE_UNAVAILABLE
+                break Provider failure ends this import request
+                    AIC-->>Import: Timeout, transport error, malformed response, or 5xx
+                    Import-->>API: ArtInstituteIntegrationException
+                    API-->>FE: 503 MUSEUM_SERVICE_UNAVAILABLE
+                end
             else Provider returns artwork detail
                 AIC-->>Import: Artwork detail
                 Import->>Import: Validate ID, public-domain status, thumbnail, and image
 
                 alt Artwork is not importable
-                    Import-->>API: ArtworkNotImportableException
-                    API-->>FE: 422 ARTWORK_NOT_IMPORTABLE
+                    break Importability failure ends this import request
+                        Import-->>API: ArtworkNotImportableException
+                        API-->>FE: 422 ARTWORK_NOT_IMPORTABLE
+                    end
                 else Artwork is importable
                     Import-->>Service: Prepared validated snapshot
-
-                    rect rgb(235, 244, 255)
-                        Note over Service,DB: Transaction begins after import preparation succeeds
-                        Service->>DB: Lock exhibition row
-                        Service->>DB: Recheck draft state and capacity
-                        Service->>Import: findOrPersist(prepared snapshot)
-
-                        alt Snapshot already exists
-                            Import->>DB: Reuse local snapshot
-                        else Snapshot must be created
-                            Import->>DB: Insert snapshot if absent
-                            Note over Import,DB: Source and externalId are unique
-                        end
-
-                        Service->>DB: Check duplicate exhibition membership
-                        Service->>DB: Insert exhibition item at next position
-
-                        alt Membership persistence succeeds
-                            DB->>DB: Commit transaction
-                            DB-->>Service: Committed item and artwork snapshot
-                            Service-->>API: ExhibitionItemResponse
-                            API-->>FE: 201 Created
-                        else Domain conflict occurs
-                            DB->>DB: Roll back transaction
-                            Service-->>API: Domain exception
-                            API-->>FE: 404 or 409 domain error
-                        else Unexpected persistence failure occurs
-                            DB->>DB: Roll back transaction
-                            Service-->>API: Persistence exception
-                            API-->>FE: 500 INTERNAL_ERROR
-                        end
-                    end
                 end
+            end
+        end
+
+        rect rgb(235, 244, 255)
+            Note over Service,DB: Transaction begins after either preparation path succeeds
+            Service->>DB: Lock exhibition row
+            Service->>DB: Recheck draft state and capacity
+            Service->>Import: findOrPersist(prepared snapshot)
+
+            alt Snapshot already exists
+                Import->>DB: Reuse local snapshot
+            else Snapshot must be created
+                Import->>DB: Insert snapshot if absent
+                Note over Import,DB: Source and externalId are unique
+            end
+
+            Service->>DB: Check duplicate exhibition membership
+            Service->>DB: Insert exhibition item at next position
+
+            alt Membership persistence succeeds
+                DB->>DB: Commit transaction
+                DB-->>Service: Committed item and artwork snapshot
+                Service-->>API: ExhibitionItemResponse
+                API-->>FE: 201 Created
+            else Domain conflict occurs
+                DB->>DB: Roll back transaction
+                Service-->>API: Domain exception
+                API-->>FE: 404 EXHIBITION_NOT_FOUND, or 409 PUBLISHED_EXHIBITION_READ_ONLY, EXHIBITION_ARTWORK_LIMIT_REACHED, or DUPLICATE_EXHIBITION_ARTWORK
+            else Unexpected persistence failure occurs
+                DB->>DB: Roll back transaction
+                Service-->>API: Persistence exception
+                API-->>FE: 500 INTERNAL_ERROR
             end
         end
     end
@@ -84,8 +88,8 @@ detail to be retrieved and validated without holding the exhibition lock. Provid
 with `503 MUSEUM_SERVICE_UNAVAILABLE`. A missing, mismatched, non-public-domain, or otherwise unusable
 artwork terminates with `422 ARTWORK_NOT_IMPORTABLE`.
 
-Only a successfully prepared import enters the transaction. The transaction locks and rechecks the
-exhibition, reuses or persists the local artwork snapshot, and creates the ordered exhibition
+Both successful preparation paths enter the same transaction. The transaction locks and rechecks
+the exhibition, reuses or persists the local artwork snapshot, and creates the ordered exhibition
 membership. A successful transaction commits and returns `201 Created`. Domain conflicts or
 persistence failures roll back, so neither the exhibition item nor a newly inserted artwork snapshot
 is committed by a failed import.
