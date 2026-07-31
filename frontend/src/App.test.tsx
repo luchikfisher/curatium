@@ -3,8 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 
-function summary(title = 'Lines of Light', status: 'DRAFT' | 'PUBLISHED' = 'PUBLISHED') {
-  return { id: 1, title, summary: 'A study of light and form.', status, coverImageUrl: null, artworkCount: 3, updatedAt: '2026-07-18T12:00:00Z' }
+function summary(
+  title = 'Lines of Light',
+  status: 'DRAFT' | 'PUBLISHED' = 'PUBLISHED',
+  coverImageUrl: string | null = null,
+) {
+  return { id: 1, title, summary: 'A study of light and form.', status, coverImageUrl, artworkCount: 3, updatedAt: '2026-07-18T12:00:00Z' }
 }
 
 function respond(body: unknown, status = 200) {
@@ -43,6 +47,19 @@ describe('route screens', () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { name: 'Server-selected exhibition' })).toBeInTheDocument()
     expect(screen.queryByText('Draft')).not.toBeInTheDocument()
+  })
+
+  it('renders catalogue covers as decorative lazy local artwork images', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond([
+      summary('Covered exhibition', 'PUBLISHED', '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail'),
+    ])))
+    renderAt('/')
+
+    await screen.findByRole('heading', { name: 'Covered exhibition' })
+    const image = document.querySelector('.exhibition-card__image img')
+    expect(image).toHaveAttribute('src', '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail')
+    expect(image).toHaveAttribute('loading', 'lazy')
+    expect(image).toHaveAttribute('alt', '')
   })
 
   it('retries a recoverable catalogue error', async () => {

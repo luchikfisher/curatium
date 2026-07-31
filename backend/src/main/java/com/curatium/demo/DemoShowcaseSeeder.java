@@ -4,6 +4,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import com.curatium.artwork.application.ArtworkImageUrlFactory;
+import com.curatium.artwork.application.ArtworkImageVariant;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
@@ -149,8 +151,8 @@ public class DemoShowcaseSeeder implements ApplicationRunner {
                 artwork.artistDisplay(),
                 artwork.dateDisplay(),
                 artwork.mediumDisplay(),
-                imageUrl(artwork.imageId(), 400),
-                imageUrl(artwork.imageId(), 843),
+                imageUrl(artwork.imageId(), ArtworkImageVariant.THUMBNAIL),
+                imageUrl(artwork.imageId(), ArtworkImageVariant.DISPLAY),
                 "https://www.artic.edu/artworks/%s/%s".formatted(artwork.externalId(), artwork.slug()),
                 artwork.creditLine()
         );
@@ -193,8 +195,8 @@ public class DemoShowcaseSeeder implements ApplicationRunner {
                 artwork.artistDisplay(),
                 artwork.dateDisplay(),
                 artwork.mediumDisplay(),
-                imageUrl(artwork.imageId(), 400),
-                imageUrl(artwork.imageId(), 843),
+                imageUrl(artwork.imageId(), ArtworkImageVariant.THUMBNAIL),
+                imageUrl(artwork.imageId(), ArtworkImageVariant.DISPLAY),
                 "https://www.artic.edu/artworks/%s/%s".formatted(artwork.externalId(), artwork.slug()),
                 artwork.creditLine(),
                 artworkId
@@ -205,8 +207,8 @@ public class DemoShowcaseSeeder implements ApplicationRunner {
         return Timestamp.from(PUBLISHED_AT);
     }
 
-    private String imageUrl(String imageId, int width) {
-        return "https://www.artic.edu/iiif/2/%s/full/%d,/0/default.jpg".formatted(imageId, width);
+    private String imageUrl(String imageId, ArtworkImageVariant variant) {
+        return ArtworkImageUrlFactory.url(ArtworkImageUrlFactory.parseCanonicalImageId(imageId), variant);
     }
 
     private record DemoArtwork(

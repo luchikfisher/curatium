@@ -14,5 +14,7 @@ curatium:
   frontend-origin: ${CURATIUM_FRONTEND_ORIGIN:http://localhost:5173}
   art-institute:
     base-url: ${CURATIUM_ART_INSTITUTE_BASE_URL:https://api.artic.edu/api/v1}
+    iiif-base-url: ${CURATIUM_ART_INSTITUTE_IIIF_BASE_URL:https://www.artic.edu/iiif/2}
     connect-timeout: ${CURATIUM_ART_INSTITUTE_CONNECT_TIMEOUT:2s}
     read-timeout: ${CURATIUM_ART_INSTITUTE_READ_TIMEOUT:5s}
+    image-cache-directory: ${CURATIUM_ARTWORK_IMAGE_CACHE_DIRECTORY:./.curatium/artwork-images}

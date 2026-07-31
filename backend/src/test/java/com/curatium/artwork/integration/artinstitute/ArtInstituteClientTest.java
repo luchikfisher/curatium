@@ -69,9 +69,9 @@ class ArtInstituteClientTest {
         assertTrue(page.hasNextPage());
         assertEquals(1, page.items().size());
         assertEquals("154235", page.items().getFirst().externalId());
-        assertEquals("https://www.artic.edu/iiif/2/d7df2633-3b40-f570-c906-211503a37cde/full/200,/0/default.jpg",
+        assertEquals("/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/thumbnail",
                 page.items().getFirst().thumbnailUrl());
-        assertEquals("https://www.artic.edu/iiif/2/d7df2633-3b40-f570-c906-211503a37cde/full/843,/0/default.jpg",
+        assertEquals("/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/display",
                 page.items().getFirst().imageUrl());
         assertEquals("https://www.artic.edu/artworks/154235", page.items().getFirst().sourceUrl());
     }
@@ -93,9 +93,9 @@ class ArtInstituteClientTest {
         server.createContext("/artworks/search", exchange -> writeJson(exchange, 200, """
                 {
                   "pagination": {"limit": 20, "current_page": 1, "next_url": null},
-                  "config": {"website_url": "https://www.artic.edu"},
+                  "config": {"iiif_url": "https://www.artic.edu/iiif/2"},
                   "data": [
-                    {"id": 154235, "title": "The Girl by the Window", "image_id": "image-id", "is_public_domain": true}
+                    {"id": 154235, "title": "The Girl by the Window", "image_id": "d7df2633-3b40-f570-c906-211503a37cde", "is_public_domain": true}
                   ]
                 }
                 """));

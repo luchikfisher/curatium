@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { EmptyState, LoadingState } from '../components/AsyncState'
+import { ArtworkImage } from '../components/ArtworkImage'
 import {
   addExhibitionArtwork,
   clearExhibitionCover,
@@ -508,11 +509,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         <h2 id="cover-heading">Cover artwork</h2>
         {coverItem ? (
           <div className="cover-selection__current">
-            {coverItem.artwork.thumbnailUrl ? (
-              <img src={coverItem.artwork.thumbnailUrl} alt={`Current cover: ${coverItem.artwork.title}`} />
-            ) : (
-              <div className="current-artwork-item__image-placeholder" role="img" aria-label={`No thumbnail available for the current cover, ${coverItem.artwork.title}`} />
-            )}
+            <ArtworkImage
+              src={coverItem.artwork.thumbnailUrl}
+              alt={`Current cover: ${coverItem.artwork.title}`}
+              className="cover-selection__image"
+            />
             <div>
               <p className="cover-selection__status" role="status">Current cover</p>
               <p>{coverItem.artwork.title}</p>
@@ -682,11 +683,11 @@ function CurrentArtworkItem({
     <li className="current-artwork-item">
       <article aria-labelledby={`artwork-item-${item.id}-title`}>
         <div className="current-artwork-item__summary">
-          {item.artwork.thumbnailUrl ? (
-            <img src={item.artwork.thumbnailUrl} alt={`Thumbnail of ${item.artwork.title}`} />
-          ) : (
-            <div className="current-artwork-item__image-placeholder" role="img" aria-label={`No thumbnail available for ${item.artwork.title}`} />
-          )}
+          <ArtworkImage
+            src={item.artwork.thumbnailUrl}
+            alt={`Thumbnail of ${item.artwork.title}`}
+            className="current-artwork-item__image"
+          />
           <div>
             <p className="current-artwork-item__position">Artwork {item.position} of {itemCount}</p>
             <h3 id={`artwork-item-${item.id}-title`}>{item.artwork.title}</h3>
@@ -811,11 +812,12 @@ function SearchContent({
           const disabled = alreadyAdded || isReadOnly || atCapacity || addingExternalId !== null || itemMutationInProgress || coverMutationInProgress
           return (
             <article className="museum-artwork-card" key={artworkKey(artwork)}>
-              {artwork.thumbnailUrl ? (
-                <img className="museum-artwork-card__image" src={artwork.thumbnailUrl} alt={`Thumbnail of ${artwork.title}`} />
-              ) : (
-                <div className="museum-artwork-card__image placeholder-image" role="img" aria-label={`No thumbnail available for ${artwork.title}`} />
-              )}
+              <ArtworkImage
+                src={artwork.thumbnailUrl}
+                alt={`Thumbnail of ${artwork.title}`}
+                loading="lazy"
+                className="museum-artwork-card__image"
+              />
               <div className="museum-artwork-card__body">
                 <h3>{artwork.title}</h3>
                 <p>{artwork.artistDisplay || 'Artist unknown'}</p>

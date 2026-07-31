@@ -947,7 +947,10 @@ class ExhibitionApiIntegrationTests {
                 )
         );
         assertEquals(
-                List.of("https://example.test/image.jpg", "https://example.test/image.jpg"),
+                List.of(
+                        "/api/artwork-images/art-institute/00000000-0000-0000-0000-000000000000/display",
+                        "/api/artwork-images/art-institute/00000000-0000-0000-0000-000000000000/display"
+                ),
                 jdbcTemplate.queryForList(
                         "SELECT image_url FROM artworks WHERE id IN (?, ?) ORDER BY id",
                         String.class,
@@ -1026,7 +1029,8 @@ class ExhibitionApiIntegrationTests {
                 .andExpect(jsonPath("$.items[0].position").value(1))
                 .andExpect(jsonPath("$.items[0].curatorialNote").value("First public note"))
                 .andExpect(jsonPath("$.items[0].artwork.title").value("Example artwork"))
-                .andExpect(jsonPath("$.items[0].artwork.imageUrl").value("https://example.test/image.jpg"))
+                .andExpect(jsonPath("$.items[0].artwork.imageUrl")
+                        .value("/api/artwork-images/art-institute/00000000-0000-0000-0000-000000000000/display"))
                 .andExpect(jsonPath("$.items[1].id").value(secondItemId));
         assertEquals(0, DETAIL_REQUESTS.get());
 
@@ -1266,7 +1270,8 @@ class ExhibitionApiIntegrationTests {
                         INSERT INTO artworks (
                             source, external_id, title, thumbnail_url, image_url, public_domain
                         ) VALUES ('ART_INSTITUTE_OF_CHICAGO', ?, 'Example artwork',
-                            'https://example.test/thumb.jpg', 'https://example.test/image.jpg', true)
+                            '/api/artwork-images/art-institute/00000000-0000-0000-0000-000000000000/thumbnail',
+                            '/api/artwork-images/art-institute/00000000-0000-0000-0000-000000000000/display', true)
                         RETURNING id
                         """,
                 Long.class,
@@ -1379,11 +1384,11 @@ class ExhibitionApiIntegrationTests {
                   "data": {
                     "id": %s,
                     "title": "Artwork %s",
-                    "image_id": "image-%s",
+                    "image_id": "123e4567-e89b-12d3-a456-426614174000",
                     "is_public_domain": true
                   }
                 }
-                """.formatted(externalId, externalId, externalId);
+                """.formatted(externalId, externalId);
     }
 
     private record ExhibitionRequest(String title, String summary, String introduction) {

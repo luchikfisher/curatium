@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { ArtworkImage } from '../components/ArtworkImage'
 import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
@@ -223,7 +224,7 @@ function PublicationError({ error }: { error: Error }) {
 function CoverArtwork({ item }: { item: ExhibitionItem }) {
   return (
     <article className="preview-cover__content">
-      <img src={imageFor(item.artwork)} alt={`Cover artwork: ${item.artwork.title}`} />
+      <ArtworkImage src={imageFor(item.artwork)} alt={`Cover artwork: ${item.artwork.title}`} className="preview-artwork-image" />
       <div>
         <p className="preview-cover__label">Current cover</p>
         <h3>{item.artwork.title}</h3>
@@ -238,7 +239,7 @@ function PreviewArtwork({ item, itemCount }: { item: ExhibitionItem; itemCount: 
   return (
     <li>
       <article className="preview-artwork">
-        <img src={imageFor(artwork)} alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} />
+        <ArtworkImage src={imageFor(artwork)} alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} className="preview-artwork-image" />
         <div className="preview-artwork__body">
           <p className="preview-artwork__position">Artwork {item.position} of {itemCount}</p>
           <h3>{artwork.title}</h3>

@@ -11,6 +11,7 @@ docs/.private/
 # Java / Maven
 target/
 *.log
+.curatium/
 
 # Frontend
 node_modules/

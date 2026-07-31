@@ -109,7 +109,11 @@ class ArtworkApiIntegrationTests {
                 .andExpect(jsonPath("$.hasNextPage").value(true))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].externalId").value("154235"))
-                .andExpect(jsonPath("$.items[0].publicDomain").value(true));
+                .andExpect(jsonPath("$.items[0].publicDomain").value(true))
+                .andExpect(jsonPath("$.items[0].thumbnailUrl").value(
+                        "/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/thumbnail"))
+                .andExpect(jsonPath("$.items[0].imageUrl").value(
+                        "/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/display"));
         assertEquals("q=night&page=2&limit=10&fields=id,title,artist_display,date_display,medium_display,image_id,credit_line,is_public_domain",
                 SEARCH_QUERY.get());
 
@@ -141,7 +145,7 @@ class ArtworkApiIntegrationTests {
 
         assertEquals(ArtworkSource.ART_INSTITUTE_OF_CHICAGO, artwork.getSource());
         assertEquals("The Girl by the Window", artwork.getTitle());
-        assertEquals("https://www.artic.edu/iiif/2/image-id/full/843,/0/default.jpg", artwork.getImageUrl());
+        assertEquals("/api/artwork-images/art-institute/d7df2633-3b40-f570-c906-211503a37cde/display", artwork.getImageUrl());
         assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM artworks", Integer.class));
         assertEquals("154235", jdbcTemplate.queryForObject(
                 "SELECT external_id FROM artworks WHERE id = ?", String.class, artwork.getId()
@@ -300,7 +304,7 @@ class ArtworkApiIntegrationTests {
                   "pagination": {"limit": 10, "current_page": 2, "next_url": "https://api.artic.edu/api/v1/artworks/search?page=3"},
                   "config": {"iiif_url": "https://www.artic.edu/iiif/2", "website_url": "https://www.artic.edu"},
                   "data": [
-                    {"id": 154235, "title": "The Girl by the Window", "image_id": "image-id", "is_public_domain": true},
+                    {"id": 154235, "title": "The Girl by the Window", "image_id": "d7df2633-3b40-f570-c906-211503a37cde", "is_public_domain": true},
                     {"id": 2, "title": "Private artwork", "image_id": "private-image", "is_public_domain": false}
                   ]
                 }
@@ -317,7 +321,7 @@ class ArtworkApiIntegrationTests {
                     "artist_display": "Edvard Munch",
                     "date_display": "1893",
                     "medium_display": "Oil on canvas",
-                    "image_id": "image-id",
+                    "image_id": "d7df2633-3b40-f570-c906-211503a37cde",
                     "credit_line": "Searle Family Trust",
                     "is_public_domain": true
                   }
