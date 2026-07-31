@@ -114,6 +114,13 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .preview-publication dl div { border-left: 2px solid var(--line); padding-left: .75rem; }
 .preview-publication dt { color: var(--muted); font-size: .82rem; font-weight: 700; }
 .preview-publication dd { margin: .3rem 0 0; line-height: 1.45; }
+.preview-publication__controls { max-width: 46rem; margin-top: 2rem; border-top: 1px solid var(--line); padding-top: 1.5rem; }
+.preview-publication__controls h3 { margin: 0 0 .65rem; font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 400; }
+.preview-publication__controls > p:not(.form-alert):not(.form-success) { margin: 0; color: var(--muted); line-height: 1.6; }
+.publication-prerequisites { display: grid; gap: .4rem; margin: 1rem 0 1.25rem; padding-left: 1.25rem; color: var(--muted); line-height: 1.5; }
+.publication-prerequisites strong { color: var(--ink); }
+.preview-publication__controls .form-alert, .preview-publication__controls .form-success { margin-top: 1rem; }
+.preview-publication__controls .button { margin-top: .25rem; }
 .preview-empty-copy { color: var(--muted); font-style: italic; }
 .preview-cover__content { display: flex; align-items: flex-start; gap: 1.25rem; }
 .preview-cover__content img { width: min(100%, 20rem); aspect-ratio: 4 / 3; object-fit: cover; background: #dedbd3; }
