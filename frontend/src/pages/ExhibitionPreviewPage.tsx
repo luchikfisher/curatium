@@ -5,6 +5,7 @@ import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
+import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 
 export function ExhibitionPreviewPage() {
   const { id } = useParams()
@@ -100,6 +101,10 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/edit`}>{isPublished ? 'View metadata' : 'Edit metadata'}</Link>
         <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/artworks`}>{isPublished ? 'View artworks' : 'Curate artworks'}</Link>
       </nav>
+      <LazyExhibitionGallery
+        exhibition={exhibition}
+        fallback={<p className="virtual-gallery__fallback">The standard curator preview is shown below.</p>}
+      />
       <section className="preview-publication" aria-labelledby="preview-publication-heading">
         <h2 id="preview-publication-heading">Publication details</h2>
         <p>{isPublished
