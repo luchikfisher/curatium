@@ -26,7 +26,14 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
     />
   }
 
-  return <LazyExhibitionGallery exhibition={exhibition} headingLevel={1} fallback={<StandardExhibition exhibition={exhibition} />} />
+  return (
+    <LazyExhibitionGallery
+      exhibition={exhibition}
+      headingLevel={1}
+      fallback={<StandardExhibition exhibition={exhibition} />}
+      exitAction={<Link className="text-link" to="/">Exit to exhibitions</Link>}
+    />
+  )
 }
 
 function StandardExhibition({ exhibition }: { exhibition: PublicExhibitionDetail }) {
