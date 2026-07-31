@@ -111,7 +111,7 @@ describe('curator exhibition preview', () => {
     renderAt('/exhibitions/1/preview')
 
     await screen.findByRole('heading', { name: 'First committed artwork' })
-    expect(within(screen.getByRole('list')).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+    expect(within(screen.getByRole('list', { name: 'Exhibition artworks' })).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       'First committed artwork', 'Second committed artwork', 'Third committed artwork',
     ])
   })
@@ -170,6 +170,198 @@ describe('curator exhibition preview', () => {
     expect(screen.getByText('The server returned data Curatium could not understand.')).toBeInTheDocument()
   })
 
+  it('publishes from committed backend state and displays the committed publication time', async () => {
+    const first = item(1, { title: 'Committed cover' })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(detail({
+        title: 'Committed published title',
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await screen.findByRole('button', { name: 'Publish exhibition' })
+    await userEvent.click(screen.getByRole('button', { name: 'Publish exhibition' }))
+
+    expect(await screen.findByText('Committed published title')).toBeInTheDocument()
+    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
+    expect(screen.getByText('Exhibition published. Curatorial editing is now read-only.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View metadata' })).toHaveAttribute('href', '/exhibitions/1/edit')
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/exhibitions/1/publish', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('shows server publication prerequisite failures while retaining the draft preview', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(error(
+        'INVALID_PUBLICATION_STATE',
+        'A published exhibition must include at least one artwork.',
+        409,
+      ), 409)))
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('A published exhibition must include at least one artwork.')
+    expect(screen.getByRole('list', { name: 'Publication requirements' })).toHaveTextContent('Required: At least one artwork')
+    expect(screen.getByText('Draft preview')).toBeInTheDocument()
+  })
+
+  it('explains a published-read-only conflict without replacing committed preview data', async () => {
+    const first = item(1)
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(error(
+        'PUBLISHED_EXHIBITION_READ_ONLY',
+        'Exhibition 1 must be unpublished before it can be edited.',
+        409,
+      ), 409))
+      .mockResolvedValueOnce(respond(detail({
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      }))))
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This exhibition is currently read-only.')
+    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+  })
+
+  it('unpublishes with committed preserved data and clears publishedAt', async () => {
+    const first = item(1, { title: 'Preserved cover' })
+    first.curatorialNote = 'Preserved note.'
+    const second = item(2, { title: 'Preserved second artwork', artistDisplay: 'Preserved artist' })
+    second.curatorialNote = 'Second preserved note.'
+    const published = detail({
+      summary: 'Preserved summary',
+      introduction: 'Preserved introduction',
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [second, first],
+      coverArtworkId: first.artwork.id,
+    })
+    const unpublished = { ...published, status: 'DRAFT', publishedAt: null, updatedAt: '2026-07-23T10:00:00Z' }
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respond(published))
+      .mockResolvedValueOnce(respond(unpublished)))
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(screen.queryByText('Published', { selector: 'dt' })).not.toBeInTheDocument()
+    expect(screen.getByText('Preserved summary')).toBeInTheDocument()
+    expect(screen.getByText('Preserved introduction')).toBeInTheDocument()
+    expect(screen.getByText('Preserved note.')).toBeInTheDocument()
+    expect(screen.getByText('Second preserved note.')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Cover artwork: Preserved cover' })).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Exhibition artworks' })).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      'Preserved cover', 'Preserved second artwork',
+    ])
+    expect(screen.getByText('Preserved artist')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Edit metadata' })).toBeInTheDocument()
+    expect(screen.getByText('Exhibition unpublished. Curatorial editing is available again.')).toBeInTheDocument()
+  })
+
+  it('prevents duplicate publication submissions while the request is pending', async () => {
+    const first = item(1)
+    let resolvePublish: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolvePublish = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    const publishButton = await screen.findByRole('button', { name: 'Publish exhibition' })
+    await userEvent.click(publishButton)
+    expect(screen.getByRole('button', { name: 'Publishing…' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Publishing…' }))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    resolvePublish?.(respond(detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+  })
+
+  it('shows repeated publish and unpublish conflicts from the backend', async () => {
+    const first = item(1)
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(error('INVALID_PUBLICATION_STATE', 'The exhibition is already published.', 409), 409))
+      .mockResolvedValueOnce(respond(detail({
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+      .mockResolvedValueOnce(respond(error('INVALID_PUBLICATION_STATE', 'The exhibition is already a draft.', 409), 409)))
+    const { unmount } = renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The exhibition is already published.')
+    unmount()
+
+    renderAt('/exhibitions/1/preview')
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The exhibition is already a draft.')
+  })
+
+  it('moves to the exhibition-not-found state when a publication request reports a missing exhibition', async () => {
+    const first = item(1)
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      .mockResolvedValueOnce(respond(error('EXHIBITION_NOT_FOUND', 'No exhibition found.', 404), 404)))
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
+
+    expect(await screen.findByRole('heading', { name: 'Exhibition not found' })).toBeInTheDocument()
+  })
+
+  it('aborts a stale publication request when the preview route changes', async () => {
+    const first = item(1)
+    let publicationSignal: AbortSignal | undefined
+    let resolvePublication: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ items: [first], coverArtworkId: first.artwork.id })))
+      if (path === '/api/exhibitions/1/publish') {
+        publicationSignal = options?.signal as AbortSignal
+        return new Promise<Response>((resolve) => { resolvePublication = resolve })
+      }
+      if (path === '/api/exhibitions/2') return Promise.resolve(respond(detail({ id: 2, title: 'Second preview' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
+    window.history.pushState({}, '', '/exhibitions/2/preview')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    await waitFor(() => expect(publicationSignal?.aborted).toBe(true))
+    resolvePublication?.(respond(detail({
+      title: 'Stale published exhibition',
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    expect(await screen.findByRole('heading', { name: 'Second preview' })).toBeInTheDocument()
+    expect(screen.queryByText('Stale published exhibition')).not.toBeInTheDocument()
+  })
+
   it('aborts a stale preview request when the route changes', async () => {
     let firstSignal: AbortSignal | undefined
     const fetchMock = vi.fn((path: string, options?: RequestInit) => {
@@ -202,5 +394,15 @@ describe('curator exhibition preview', () => {
     expect(screen.getByRole('link', { name: 'Edit metadata' })).toHaveAttribute('href', '/exhibitions/1/edit')
     expect(screen.getByRole('link', { name: 'Curate artworks' })).toHaveAttribute('href', '/exhibitions/1/artworks')
     expect(screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })).toBeInTheDocument()
+  })
+
+  it('provides accessible publication status, requirements, and action controls', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail())))
+    renderAt('/exhibitions/1/preview')
+
+    await screen.findByRole('heading', { name: 'Lines of Light' })
+    expect(screen.getByRole('status')).toHaveTextContent('Draft preview')
+    expect(screen.getByRole('list', { name: 'Publication requirements' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publish exhibition' })).toHaveAttribute('aria-describedby', 'publication-prerequisites')
   })
 })
