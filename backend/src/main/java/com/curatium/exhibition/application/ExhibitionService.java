@@ -350,6 +350,7 @@ public class ExhibitionService {
                 exhibition.getSummary(),
                 exhibition.getIntroduction(),
                 exhibition.getStatus(),
+                exhibition.getPublishedAt(),
                 coverArtworkId,
                 items,
                 exhibition.getCreatedAt(),
@@ -376,6 +377,7 @@ public class ExhibitionService {
                 exhibition.getTitle(),
                 exhibition.getSummary(),
                 exhibition.getIntroduction(),
+                exhibition.getPublishedAt(),
                 coverArtworkId,
                 items
         );

@@ -80,6 +80,7 @@ describe('exhibition detail requests', () => {
         summary: null,
         introduction: null,
         coverArtworkId: null,
+        publishedAt: null,
       })
   })
 
@@ -90,6 +91,7 @@ describe('exhibition detail requests', () => {
       summary: null,
       introduction: null,
       status: 'DRAFT',
+      publishedAt: null,
       coverArtworkId: 4,
       items: [{
         id: 7,
@@ -117,6 +119,7 @@ describe('exhibition detail requests', () => {
       ...validDetail,
       summary: undefined,
       introduction: undefined,
+      publishedAt: undefined,
       coverArtworkId: undefined,
       items: [{
         ...validDetail.items[0],
@@ -143,6 +146,7 @@ describe('exhibition detail requests', () => {
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(omittedNullableDetail), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...validDetail, summary: 123 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...validDetail, publishedAt: 123 }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(getExhibition(1)).resolves.toMatchObject({
@@ -154,6 +158,7 @@ describe('exhibition detail requests', () => {
     await expect(getExhibition(1)).resolves.toMatchObject({
       summary: null,
       introduction: null,
+      publishedAt: null,
       coverArtworkId: null,
       items: [{
         curatorialNote: null,
@@ -166,6 +171,21 @@ describe('exhibition detail requests', () => {
         },
       }],
     })
+    await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
+    await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
+  })
+
+  it('rejects an invalid publishedAt instant as malformed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 1,
+      title: 'Malformed publication time',
+      status: 'PUBLISHED',
+      publishedAt: 'not-an-instant',
+      items: [],
+      createdAt: '2026-07-18T12:00:00Z',
+      updatedAt: '2026-07-18T12:00:00Z',
+    }), { status: 200 })))
+
     await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
   })
 })

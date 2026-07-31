@@ -46,6 +46,7 @@ export interface ExhibitionDetail {
   summary: string | null
   introduction: string | null
   status: ExhibitionStatus
+  publishedAt: string | null
   coverArtworkId: number | null
   items: ExhibitionItem[]
   createdAt: string

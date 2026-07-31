@@ -1,0 +1,174 @@
+import { Link, useParams } from 'react-router-dom'
+import { isFrontendError } from '../api/errors'
+import { LoadingState } from '../components/AsyncState'
+import { getExhibition } from '../features/exhibitions/api'
+import { useExhibition } from '../features/exhibitions/useExhibition'
+import type { ExhibitionArtwork, ExhibitionItem } from '../features/exhibitions/types'
+
+export function ExhibitionPreviewPage() {
+  const { id } = useParams()
+  const exhibitionId = parseExhibitionId(id)
+  if (exhibitionId === null) return <InvalidExhibitionRoute />
+  return <ExhibitionPreview key={id} exhibitionId={exhibitionId} />
+}
+
+function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
+  const { data: exhibition, error, retry } = useExhibition(exhibitionId, getExhibition)
+
+  if (!exhibition || exhibition.id !== exhibitionId) {
+    if (!error) return <LoadingState label="Loading curator preview…" />
+    if (isFrontendError(error) && error.status === 404) {
+      return <PreviewNotFound onRetry={retry} />
+    }
+    return <PreviewLoadError error={error} onRetry={retry} />
+  }
+
+  const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
+  const coverItem = exhibition.coverArtworkId === null
+    ? null
+    : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
+  const isPublished = exhibition.status === 'PUBLISHED'
+
+  return (
+    <section className="exhibition-preview">
+      <div className="preview-heading">
+        <p className="eyebrow">Curator preview</p>
+        <p className={`preview-status preview-status--${exhibition.status.toLowerCase()}`} role="status">
+          {isPublished ? 'Published exhibition' : 'Draft preview'}
+        </p>
+        <h1>{exhibition.title}</h1>
+        {exhibition.summary ? <p className="lede">{exhibition.summary}</p> : <p className="lede preview-empty-copy">No summary has been provided.</p>}
+      </div>
+      <nav className="editor-links" aria-label="Preview actions">
+        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/edit`}>Edit metadata</Link>
+        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/artworks`}>Curate artworks</Link>
+      </nav>
+      <section className="preview-publication" aria-labelledby="preview-publication-heading">
+        <h2 id="preview-publication-heading">Publication details</h2>
+        <p>{isPublished
+          ? 'This is the curator view of a published exhibition.'
+          : 'This draft is visible only in the curator workspace.'}
+        </p>
+        <dl>
+          <div><dt>Status</dt><dd>{isPublished ? 'Published' : 'Draft'}</dd></div>
+          {exhibition.publishedAt && <div><dt>Published</dt><dd><time dateTime={exhibition.publishedAt}>{formatTimestamp(exhibition.publishedAt)}</time></dd></div>}
+          <div><dt>Created</dt><dd><time dateTime={exhibition.createdAt}>{formatTimestamp(exhibition.createdAt)}</time></dd></div>
+          <div><dt>Last updated</dt><dd><time dateTime={exhibition.updatedAt}>{formatTimestamp(exhibition.updatedAt)}</time></dd></div>
+        </dl>
+      </section>
+      <section className="preview-introduction" aria-labelledby="preview-introduction-heading">
+        <h2 id="preview-introduction-heading">Introduction</h2>
+        {exhibition.introduction
+          ? <p>{exhibition.introduction}</p>
+          : <p className="preview-empty-copy">No introduction has been provided.</p>}
+      </section>
+      <section className="preview-cover" aria-labelledby="preview-cover-heading">
+        <h2 id="preview-cover-heading">Cover artwork</h2>
+        {coverItem ? <CoverArtwork item={coverItem} /> : <p className="preview-empty-copy">No cover artwork has been selected.</p>}
+      </section>
+      <section className="preview-artworks" aria-labelledby="preview-artworks-heading">
+        <h2 id="preview-artworks-heading">Artworks ({orderedItems.length})</h2>
+        {orderedItems.length === 0 ? (
+          <p className="preview-empty-copy">No artworks have been added to this exhibition.</p>
+        ) : (
+          <ol className="preview-artwork-list">
+            {orderedItems.map((item) => <PreviewArtwork key={item.id} item={item} itemCount={orderedItems.length} />)}
+          </ol>
+        )}
+      </section>
+    </section>
+  )
+}
+
+function CoverArtwork({ item }: { item: ExhibitionItem }) {
+  return (
+    <article className="preview-cover__content">
+      <img src={imageFor(item.artwork)} alt={`Cover artwork: ${item.artwork.title}`} />
+      <div>
+        <p className="preview-cover__label">Current cover</p>
+        <h3>{item.artwork.title}</h3>
+        <p>{item.artwork.artistDisplay || 'Artist unknown'}</p>
+      </div>
+    </article>
+  )
+}
+
+function PreviewArtwork({ item, itemCount }: { item: ExhibitionItem; itemCount: number }) {
+  const { artwork } = item
+  return (
+    <li>
+      <article className="preview-artwork">
+        <img src={imageFor(artwork)} alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} />
+        <div className="preview-artwork__body">
+          <p className="preview-artwork__position">Artwork {item.position} of {itemCount}</p>
+          <h3>{artwork.title}</h3>
+          <p>{artwork.artistDisplay || 'Artist unknown'}</p>
+          {artwork.dateDisplay && <p>{artwork.dateDisplay}</p>}
+          {artwork.mediumDisplay && <p>{artwork.mediumDisplay}</p>}
+          {artwork.creditLine && <p>{artwork.creditLine}</p>}
+          <p>{artwork.publicDomain ? 'Public domain' : 'Rights status unavailable'}</p>
+          {artwork.sourceUrl && <a className="text-link" href={artwork.sourceUrl} target="_blank" rel="noreferrer">View artwork source</a>}
+          <section className="preview-artwork__note" aria-label={`Curatorial note for artwork ${item.position} of ${itemCount}: ${artwork.title}`}>
+            <h4>Curatorial note</h4>
+            {item.curatorialNote
+              ? <p>{item.curatorialNote}</p>
+              : <p className="preview-empty-copy">No curatorial note.</p>}
+          </section>
+        </div>
+      </article>
+    </li>
+  )
+}
+
+function imageFor(artwork: ExhibitionArtwork) {
+  return artwork.imageUrl || artwork.thumbnailUrl
+}
+
+function formatTimestamp(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) return value
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function parseExhibitionId(id: string | undefined): number | null {
+  if (!id || !/^\d+$/.test(id)) return null
+  const exhibitionId = Number(id)
+  return Number.isSafeInteger(exhibitionId) && exhibitionId > 0 ? exhibitionId : null
+}
+
+function InvalidExhibitionRoute() {
+  return (
+    <section className="state-panel editor-state" role="alert">
+      <p className="eyebrow">Invalid address</p>
+      <h1>Invalid exhibition address</h1>
+      <p>Use an exhibition address from your curator workspace.</p>
+      <Link className="text-link" to="/exhibitions">Return to exhibitions</Link>
+    </section>
+  )
+}
+
+function PreviewNotFound({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section className="state-panel editor-state" role="alert">
+      <p className="eyebrow">Not found</p>
+      <h1>Exhibition not found</h1>
+      <p>This exhibition may have been deleted or the address may be incorrect.</p>
+      <button className="button button-secondary" type="button" onClick={onRetry}>Try again</button>
+      <Link className="text-link" to="/exhibitions">Return to exhibitions</Link>
+    </section>
+  )
+}
+
+function PreviewLoadError({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const message = isFrontendError(error)
+    ? error.message
+    : 'An unexpected problem occurred while loading this preview. Please try again.'
+  return (
+    <section className="state-panel editor-state" role="alert">
+      <p className="eyebrow">Preview unavailable</p>
+      <h1>We could not load this preview</h1>
+      <p>{message}</p>
+      <button className="button button-secondary" type="button" onClick={onRetry}>Try again</button>
+    </section>
+  )
+}

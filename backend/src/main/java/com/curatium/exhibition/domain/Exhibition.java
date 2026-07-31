@@ -59,6 +59,9 @@ public class Exhibition {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "published_at")
+    private Instant publishedAt;
+
     @OneToMany(mappedBy = "exhibition", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     @Getter(AccessLevel.NONE)
@@ -105,10 +108,12 @@ public class Exhibition {
 
     public void publish() {
         this.status = ExhibitionStatus.PUBLISHED;
+        this.publishedAt = Instant.now();
     }
 
     public void unpublish() {
         this.status = ExhibitionStatus.DRAFT;
+        this.publishedAt = null;
     }
 
     public List<ExhibitionItem> getItems() {
