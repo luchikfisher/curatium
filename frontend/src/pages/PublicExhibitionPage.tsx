@@ -4,6 +4,8 @@ import { LoadingState } from '../components/AsyncState'
 import { getPublicExhibition } from '../features/exhibitions/api'
 import { PublicExhibitionContent } from '../features/exhibitions/PublicExhibitionContent'
 import { useExhibition } from '../features/exhibitions/useExhibition'
+import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
+import type { PublicExhibitionDetail } from '../features/exhibitions/types'
 
 export function PublicExhibitionPage() {
   const { id } = useParams()
@@ -24,6 +26,10 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
     />
   }
 
+  return <LazyExhibitionGallery exhibition={exhibition} headingLevel={1} fallback={<StandardExhibition exhibition={exhibition} />} />
+}
+
+function StandardExhibition({ exhibition }: { exhibition: PublicExhibitionDetail }) {
   return (
     <>
       <PublicExhibitionContent exhibition={exhibition} />
