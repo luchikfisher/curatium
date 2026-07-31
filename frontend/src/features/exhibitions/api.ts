@@ -261,6 +261,31 @@ export function updateExhibition(
   return metadataRequest('PUT', `/api/exhibitions/${exhibitionId}`, metadata, signal)
 }
 
+function publicationRequest(
+  exhibitionId: number,
+  action: 'publish' | 'unpublish',
+  signal?: AbortSignal,
+): Promise<ExhibitionDetail> {
+  return requestDetail(
+    `/api/exhibitions/${exhibitionId}/${action}`,
+    { method: 'POST', signal },
+  )
+}
+
+export function publishExhibition(
+  exhibitionId: number,
+  signal?: AbortSignal,
+): Promise<ExhibitionDetail> {
+  return publicationRequest(exhibitionId, 'publish', signal)
+}
+
+export function unpublishExhibition(
+  exhibitionId: number,
+  signal?: AbortSignal,
+): Promise<ExhibitionDetail> {
+  return publicationRequest(exhibitionId, 'unpublish', signal)
+}
+
 export function selectExhibitionCover(
   exhibitionId: number,
   artworkId: number,

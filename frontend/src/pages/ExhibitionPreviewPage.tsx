@@ -1,9 +1,10 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
-import { getExhibition } from '../features/exhibitions/api'
+import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
-import type { ExhibitionArtwork, ExhibitionItem } from '../features/exhibitions/types'
+import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
 
 export function ExhibitionPreviewPage() {
   const { id } = useParams()
@@ -13,14 +14,67 @@ export function ExhibitionPreviewPage() {
 }
 
 function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
-  const { data: exhibition, error, retry } = useExhibition(exhibitionId, getExhibition)
+  const { data: exhibition, error, retry, replace } = useExhibition(exhibitionId, getExhibition)
+  const mutationController = useRef<AbortController | null>(null)
+  const mutationInFlight = useRef(false)
+  const [publicationMutation, setPublicationMutation] = useState<'publish' | 'unpublish' | null>(null)
+  const [publicationError, setPublicationError] = useState<Error | null>(null)
+  const [publicationSuccess, setPublicationSuccess] = useState<string | null>(null)
+  const [publicationNotFound, setPublicationNotFound] = useState(false)
+
+  useEffect(() => () => mutationController.current?.abort(), [])
+
+  const retryPreview = () => {
+    setPublicationNotFound(false)
+    setPublicationError(null)
+    retry()
+  }
+
+  const transitionPublication = async (action: 'publish' | 'unpublish') => {
+    if (mutationInFlight.current) return
+
+    mutationInFlight.current = true
+    const controller = new AbortController()
+    mutationController.current = controller
+    setPublicationMutation(action)
+    setPublicationError(null)
+    setPublicationSuccess(null)
+
+    try {
+      const committedExhibition = action === 'publish'
+        ? await publishExhibition(exhibitionId, controller.signal)
+        : await unpublishExhibition(exhibitionId, controller.signal)
+      if (controller.signal.aborted) return
+      replace(committedExhibition)
+      setPublicationSuccess(action === 'publish'
+        ? 'Exhibition published. Curatorial editing is now read-only.'
+        : 'Exhibition unpublished. Curatorial editing is available again.')
+    } catch (reason) {
+      if (controller.signal.aborted || isAbortError(reason)) return
+      if (isFrontendError(reason) && reason.code === 'EXHIBITION_NOT_FOUND') {
+        setPublicationNotFound(true)
+        return
+      }
+      setPublicationError(reason instanceof Error ? reason : new Error('Unknown publication error'))
+      if (isFrontendError(reason) && reason.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
+        retry()
+      }
+    } finally {
+      if (mutationController.current === controller) {
+        mutationInFlight.current = false
+        mutationController.current = null
+        if (!controller.signal.aborted) setPublicationMutation(null)
+      }
+    }
+  }
+
+  if (publicationNotFound || (!exhibition || exhibition.id !== exhibitionId) && isFrontendError(error) && error.status === 404) {
+    return <PreviewNotFound onRetry={retryPreview} />
+  }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
     if (!error) return <LoadingState label="Loading curator preview…" />
-    if (isFrontendError(error) && error.status === 404) {
-      return <PreviewNotFound onRetry={retry} />
-    }
-    return <PreviewLoadError error={error} onRetry={retry} />
+    return <PreviewLoadError error={error} onRetry={retryPreview} />
   }
 
   const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
@@ -40,8 +94,8 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         {exhibition.summary ? <p className="lede">{exhibition.summary}</p> : <p className="lede preview-empty-copy">No summary has been provided.</p>}
       </div>
       <nav className="editor-links" aria-label="Preview actions">
-        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/edit`}>Edit metadata</Link>
-        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/artworks`}>Curate artworks</Link>
+        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/edit`}>{isPublished ? 'View metadata' : 'Edit metadata'}</Link>
+        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/artworks`}>{isPublished ? 'View artworks' : 'Curate artworks'}</Link>
       </nav>
       <section className="preview-publication" aria-labelledby="preview-publication-heading">
         <h2 id="preview-publication-heading">Publication details</h2>
@@ -55,6 +109,14 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           <div><dt>Created</dt><dd><time dateTime={exhibition.createdAt}>{formatTimestamp(exhibition.createdAt)}</time></dd></div>
           <div><dt>Last updated</dt><dd><time dateTime={exhibition.updatedAt}>{formatTimestamp(exhibition.updatedAt)}</time></dd></div>
         </dl>
+        <PublicationControls
+          exhibition={exhibition}
+          coverItem={coverItem}
+          mutation={publicationMutation}
+          error={publicationError}
+          success={publicationSuccess}
+          onTransition={transitionPublication}
+        />
       </section>
       <section className="preview-introduction" aria-labelledby="preview-introduction-heading">
         <h2 id="preview-introduction-heading">Introduction</h2>
@@ -71,13 +133,82 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         {orderedItems.length === 0 ? (
           <p className="preview-empty-copy">No artworks have been added to this exhibition.</p>
         ) : (
-          <ol className="preview-artwork-list">
+          <ol className="preview-artwork-list" aria-label="Exhibition artworks">
             {orderedItems.map((item) => <PreviewArtwork key={item.id} item={item} itemCount={orderedItems.length} />)}
           </ol>
         )}
       </section>
     </section>
   )
+}
+
+function PublicationControls({
+  exhibition,
+  coverItem,
+  mutation,
+  error,
+  success,
+  onTransition,
+}: {
+  exhibition: ExhibitionDetail
+  coverItem: ExhibitionItem | null
+  mutation: 'publish' | 'unpublish' | null
+  error: Error | null
+  success: string | null
+  onTransition: (action: 'publish' | 'unpublish') => void
+}) {
+  const isPublished = exhibition.status === 'PUBLISHED'
+  const isPublishing = mutation === 'publish'
+  const isUnpublishing = mutation === 'unpublish'
+  const prerequisites = [
+    { label: 'A title', met: exhibition.title.trim().length > 0 },
+    { label: 'At least one artwork', met: exhibition.items.length > 0 },
+    { label: 'A cover selected from an included artwork', met: coverItem !== null },
+  ]
+
+  return (
+    <div className="preview-publication__controls">
+      <h3>Publication controls</h3>
+      <p>{isPublished
+        ? 'Published exhibitions are read-only. Unpublish to restore metadata and artwork curation.'
+        : 'Publishing requires all of the following. Curatium verifies the current server state when you publish.'}
+      </p>
+      <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
+        {prerequisites.map((prerequisite) => (
+          <li key={prerequisite.label}>
+            <strong>{prerequisite.met ? 'Ready' : 'Required'}:</strong> {prerequisite.label}
+          </li>
+        ))}
+      </ul>
+      {error && <PublicationError error={error} />}
+      {success && <p className="form-success" role="status">{success}</p>}
+      <button
+        className="button"
+        type="button"
+        disabled={mutation !== null}
+        aria-describedby="publication-prerequisites"
+        onClick={() => onTransition(isPublished ? 'unpublish' : 'publish')}
+      >
+        {isPublishing ? 'Publishing…' : isUnpublishing ? 'Unpublishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}
+      </button>
+    </div>
+  )
+}
+
+function PublicationError({ error }: { error: Error }) {
+  let message = 'An unexpected problem occurred while changing publication status. Please try again.'
+  if (isFrontendError(error)) {
+    if (error.code === 'INVALID_PUBLICATION_STATE') {
+      message = error.message
+    } else if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
+      message = 'This exhibition is currently read-only. The preview was refreshed to show the server state.'
+    } else if (error.code === 'VALIDATION_ERROR') {
+      message = error.message
+    } else {
+      message = error.message
+    }
+  }
+  return <p className="form-alert" role="alert">{message}</p>
 }
 
 function CoverArtwork({ item }: { item: ExhibitionItem }) {
@@ -128,6 +259,10 @@ function formatTimestamp(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.valueOf())) return value
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof DOMException && reason.name === 'AbortError'
 }
 
 function parseExhibitionId(id: string | undefined): number | null {
