@@ -193,6 +193,15 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .virtual-gallery__canvas { display: block; width: 100% !important; height: clamp(22rem, 65vh, 42rem) !important; border: 1px solid var(--line); background: #e7e4dc; }
 .virtual-gallery__fallback { margin: 1.5rem 0; color: var(--muted); font-style: italic; }
 .virtual-gallery__experience { position: relative; }
+.gallery-loading-state { position: absolute; z-index: 1; top: 1rem; left: 1rem; margin: 0; border: 1px solid var(--line); padding: .55rem .75rem; background: rgb(255 254 250 / 94%); color: var(--muted); font-size: .9rem; }
+.gallery-recovery { max-width: 46rem; margin: 2rem 0 1.5rem; border-left: 3px solid #8b7355; padding: 1.25rem 1.5rem; background: #f6f1e8; }
+.gallery-recovery:focus-visible { outline-offset: 4px; }
+.gallery-recovery .eyebrow, .gallery-recovery h2, .gallery-recovery p { margin: 0; }
+.gallery-recovery h2 { margin-top: .35rem; font-size: 1.6rem; }
+.gallery-recovery > p:not(.eyebrow) { margin-top: .65rem; color: var(--muted); line-height: 1.5; }
+.gallery-recovery__actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.gallery-recovery__actions .button { margin: 0; }
+.gallery-recovery--standard { border-left-color: var(--line); background: var(--paper); }
 .gallery-introduction { position: absolute; z-index: 1; top: 50%; left: 50%; width: min(36rem, calc(100% - 2rem)); max-height: calc(100% - 2rem); overflow: auto; border: 1px solid var(--line); padding: clamp(1.25rem, 3vw, 2rem); background: rgb(255 254 250 / 96%); box-shadow: 0 .75rem 2rem rgb(39 35 28 / 22%); transform: translate(-50%, -50%); }
 .gallery-introduction h2, .gallery-introduction p { margin: 0; }
 .gallery-introduction h2 { font-size: clamp(1.7rem, 3vw, 2.4rem); }

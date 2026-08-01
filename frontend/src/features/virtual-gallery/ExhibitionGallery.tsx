@@ -1,7 +1,7 @@
-import { Component, Suspense, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Text, useTexture } from '@react-three/drei'
-import { DoubleSide, SRGBColorSpace, type Texture, Vector3 } from 'three'
+import { DoubleSide, SRGBColorSpace, type Texture, Vector3, WebGLRenderer } from 'three'
 import { ENTRY_CAMERA_POSITION, ENTRY_CAMERA_TARGET } from './geometry'
 import { assignArtworkSlots, fitArtwork } from './slots'
 import type { GalleryArtwork, GalleryExhibition, GalleryViewpoint, SlottedArtwork } from './types'
@@ -10,6 +10,22 @@ import { GalleryInformationOverlay } from './GalleryInformationOverlay'
 import { GalleryNavigation } from './GalleryNavigation'
 import { gallerySessionKey } from './session'
 import { cameraTransitionFactor, viewpointForSlot } from './viewpoints'
+
+export type GalleryMode = 'virtual' | 'standard'
+
+export type GalleryDegradationReason =
+  | 'webgl-unavailable'
+  | 'renderer-initialization-failed'
+  | 'context-lost'
+  | 'scene-error'
+
+export type GalleryPhase =
+  | { kind: 'loading'; attempt: number }
+  | { kind: 'ready'; attempt: number }
+  | { kind: 'retrying'; attempt: number }
+  | { kind: 'degraded'; attempt: number; reason: GalleryDegradationReason }
+
+type GalleryFocusTarget = 'recovery' | 'standard' | 'virtual'
 
 export function ExhibitionGallery({
   exhibition,
@@ -48,13 +64,28 @@ function GalleryInstance({
   headingLevel?: 1 | 2
   exitAction: ReactNode
 }) {
-  const [showStandardGallery, setShowStandardGallery] = useState(() => !supportsWebGL())
+  const [initialWebGLSupport] = useState(() => supportsWebGL())
+  const [mode, setMode] = useState<GalleryMode>(() => initialWebGLSupport ? 'virtual' : 'standard')
+  const [rendererAttempt, setRendererAttempt] = useState(0)
+  const [phase, setPhase] = useState<GalleryPhase>(() => initialWebGLSupport
+    ? { kind: 'loading', attempt: 0 }
+    : { kind: 'degraded', attempt: 0, reason: 'webgl-unavailable' })
   const assignments = useMemo(() => assignArtworkSlots(exhibition.items), [exhibition.items])
   const [tourStarted, setTourStarted] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [informationOpen, setInformationOpen] = useState(false)
   const informationButtonRef = useRef<HTMLButtonElement>(null)
   const restoreInformationFocus = useRef(false)
+  const activeAttemptRef = useRef(rendererAttempt)
+  const virtualSessionActiveRef = useRef(initialWebGLSupport)
+  const degradationReasonRef = useRef<GalleryDegradationReason | null>(
+    initialWebGLSupport ? null : 'webgl-unavailable',
+  )
+  const requestedFocusRef = useRef<GalleryFocusTarget | null>(null)
+  const recoveryRef = useRef<HTMLElement>(null)
+  const standardModeRef = useRef<HTMLElement>(null)
+  const standardContentRef = useRef<HTMLDivElement>(null)
+  const virtualGalleryRef = useRef<HTMLElement>(null)
   const currentSelectedIndex = !tourStarted
     ? -1
     : selectedIndex >= 0 && selectedIndex < assignments.length
@@ -71,6 +102,24 @@ function GalleryInstance({
     }
   }, [informationOpen])
 
+  useEffect(() => {
+    const requestedTarget = requestedFocusRef.current
+    let movedFocus = false
+    if (requestedTarget === 'recovery' && phase.kind === 'degraded') {
+      recoveryRef.current?.focus()
+      movedFocus = true
+    }
+    if (requestedTarget === 'standard' && mode === 'standard' && phase.kind !== 'degraded') {
+      standardModeRef.current?.focus()
+      movedFocus = true
+    }
+    if (requestedTarget === 'virtual' && mode === 'virtual') {
+      virtualGalleryRef.current?.focus()
+      movedFocus = true
+    }
+    if (movedFocus) requestedFocusRef.current = null
+  }, [mode, phase])
+
   const closeInformation = () => {
     restoreInformationFocus.current = true
     setInformationOpen(false)
@@ -82,45 +131,113 @@ function GalleryInstance({
     setTourStarted(true)
   }
 
-  if (showStandardGallery) return <>{fallback}</>
+  const enterDegraded = useCallback((attempt: number, reason: GalleryDegradationReason, moveFocus: boolean) => {
+    if (!virtualSessionActiveRef.current || attempt !== activeAttemptRef.current || degradationReasonRef.current !== null) return
+    virtualSessionActiveRef.current = false
+    degradationReasonRef.current = reason
+    if (moveFocus) requestedFocusRef.current = 'recovery'
+    setInformationOpen(false)
+    setMode('standard')
+    setPhase({ kind: 'degraded', attempt, reason })
+  }, [])
+
+  const markRendererReady = useCallback((attempt: number) => {
+    if (!virtualSessionActiveRef.current || attempt !== activeAttemptRef.current) return
+    setPhase((current) => {
+      if (current.attempt !== attempt || (current.kind !== 'loading' && current.kind !== 'retrying')) return current
+      return { kind: 'ready', attempt }
+    })
+  }, [])
+
+  const retryThreeDimensionalGallery = useCallback(() => {
+    if (!supportsWebGL()) {
+      virtualSessionActiveRef.current = false
+      degradationReasonRef.current = 'webgl-unavailable'
+      requestedFocusRef.current = 'recovery'
+      setMode('standard')
+      setPhase((current) => ({ kind: 'degraded', attempt: current.attempt, reason: 'webgl-unavailable' }))
+      return
+    }
+
+    const nextAttempt = activeAttemptRef.current + 1
+    activeAttemptRef.current = nextAttempt
+    virtualSessionActiveRef.current = true
+    degradationReasonRef.current = null
+    requestedFocusRef.current = 'virtual'
+    setTourStarted(false)
+    setSelectedIndex(-1)
+    setInformationOpen(false)
+    setRendererAttempt(nextAttempt)
+    setPhase({ kind: 'retrying', attempt: nextAttempt })
+    setMode('virtual')
+  }, [])
+
+  const showStandardGallery = useCallback(() => {
+    virtualSessionActiveRef.current = false
+    requestedFocusRef.current = 'standard'
+    setMode('standard')
+  }, [])
+
+  const continueInStandardGallery = useCallback(() => {
+    standardContentRef.current?.focus()
+  }, [])
+
+  if (mode === 'standard') {
+    return (
+      <>
+        {phase.kind === 'degraded' ? (
+          <GalleryRecoveryPanel
+            ref={recoveryRef}
+            reason={phase.reason}
+            onRetry={retryThreeDimensionalGallery}
+            onContinue={continueInStandardGallery}
+          />
+        ) : (
+          <GalleryStandardModePanel ref={standardModeRef} onRetry={retryThreeDimensionalGallery} />
+        )}
+        <div ref={standardContentRef} tabIndex={-1} aria-label="Standard gallery content">
+          {fallback}
+        </div>
+      </>
+    )
+  }
 
   const Heading = headingLevel === 1 ? 'h1' : 'h2'
   return (
-    <GalleryErrorBoundary resetKey={sessionKey} fallback={fallback}>
-      <section className="virtual-gallery" aria-labelledby={`virtual-gallery-${exhibition.id}`}>
+    <GalleryErrorBoundary
+      resetKey={`${sessionKey}:${rendererAttempt}`}
+      onError={() => enterDegraded(rendererAttempt, 'scene-error', true)}
+    >
+      <section ref={virtualGalleryRef} className="virtual-gallery" tabIndex={-1} aria-labelledby={`virtual-gallery-${exhibition.id}`}>
         <div className="virtual-gallery__header">
           <p className="eyebrow">Virtual gallery</p>
           <Heading id={`virtual-gallery-${exhibition.id}`}>{exhibition.title}</Heading>
           <p>{tourStarted ? 'Explore the exhibition in its curated order.' : 'Begin with the curator’s introduction, then visit each artwork in order.'}</p>
           <div className="virtual-gallery__actions">
-            <button className="text-link" type="button" onClick={() => setShowStandardGallery(true)}>
+            <button className="text-link" type="button" onClick={showStandardGallery}>
               View as standard gallery
             </button>
             {exitAction}
           </div>
         </div>
         <div className="virtual-gallery__experience">
-          <Canvas
-            className="virtual-gallery__canvas"
-            camera={{ fov: 52, position: ENTRY_CAMERA_POSITION }}
-            dpr={[1, 1.5]}
-            frameloop="demand"
-          >
-            <GalleryScene
-              assignments={assignments}
-              viewpoint={viewpoint}
-              reducedMotion={reducedMotion}
-              onContextLost={() => setShowStandardGallery(true)}
-            />
-          </Canvas>
-          {!tourStarted && (
+          <GalleryCanvasSession
+            attempt={rendererAttempt}
+            assignments={assignments}
+            viewpoint={viewpoint}
+            reducedMotion={reducedMotion}
+            onRendererReady={markRendererReady}
+            onDegraded={enterDegraded}
+          />
+          {phase.kind !== 'ready' && <GalleryLoadingState retrying={phase.kind === 'retrying'} />}
+          {!tourStarted && phase.kind === 'ready' && (
             <GalleryIntroduction
               exhibition={exhibition}
               artworkCount={assignments.length}
               onBegin={beginTour}
             />
           )}
-          {informationOpen && currentAssignment && (
+          {phase.kind === 'ready' && informationOpen && currentAssignment && (
             <GalleryInformationOverlay
               assignment={currentAssignment}
               itemIndex={currentSelectedIndex}
@@ -129,7 +246,7 @@ function GalleryInstance({
             />
           )}
         </div>
-        {tourStarted && (
+        {phase.kind === 'ready' && tourStarted && (
           <GalleryNavigation
             assignments={assignments}
             selectedIndex={currentSelectedIndex}
@@ -141,6 +258,118 @@ function GalleryInstance({
         )}
       </section>
     </GalleryErrorBoundary>
+  )
+}
+
+function GalleryCanvasSession({
+  attempt,
+  assignments,
+  viewpoint,
+  reducedMotion,
+  onRendererReady,
+  onDegraded,
+}: {
+  attempt: number
+  assignments: readonly SlottedArtwork[]
+  viewpoint: GalleryViewpoint | null
+  reducedMotion: boolean
+  onRendererReady: (attempt: number) => void
+  onDegraded: (attempt: number, reason: GalleryDegradationReason, moveFocus: boolean) => void
+}) {
+  const failedRendererAttemptRef = useRef<number | null>(null)
+
+  return (
+    <Canvas
+      key={attempt}
+      data-gallery-attempt={attempt}
+      className="virtual-gallery__canvas"
+      camera={{ fov: 52, position: ENTRY_CAMERA_POSITION }}
+      dpr={[1, 1.5]}
+      frameloop="demand"
+      gl={(defaultProps) => {
+        try {
+          return new WebGLRenderer(defaultProps)
+        } catch {
+          failedRendererAttemptRef.current = attempt
+          return createFailedRenderer(defaultProps.canvas)
+        }
+      }}
+      onCreated={() => {
+        if (failedRendererAttemptRef.current === attempt) {
+          onDegraded(attempt, 'renderer-initialization-failed', true)
+          return
+        }
+        onRendererReady(attempt)
+      }}
+    >
+      <GalleryScene
+        assignments={assignments}
+        viewpoint={viewpoint}
+        reducedMotion={reducedMotion}
+        onContextLost={() => onDegraded(attempt, 'context-lost', true)}
+      />
+    </Canvas>
+  )
+}
+
+function GalleryLoadingState({ retrying }: { retrying: boolean }) {
+  return (
+    <div className="gallery-loading-state" role="status" aria-live="polite">
+      {retrying ? 'Trying the 3D gallery again…' : 'Preparing the 3D gallery…'}
+    </div>
+  )
+}
+
+const degradationCopy: Record<GalleryDegradationReason, string> = {
+  'webgl-unavailable': '3D gallery is unavailable in this browser.',
+  'renderer-initialization-failed': 'The 3D gallery could not start.',
+  'context-lost': 'The 3D gallery stopped responding.',
+  'scene-error': 'We could not render the 3D gallery.',
+}
+
+const GalleryRecoveryPanel = ({
+  reason,
+  onRetry,
+  onContinue,
+  ref,
+}: {
+  reason: GalleryDegradationReason
+  onRetry: () => void
+  onContinue: () => void
+  ref: Ref<HTMLElement>
+}) => (
+  <section ref={ref} className="gallery-recovery" tabIndex={-1} aria-labelledby="gallery-recovery-heading">
+    <p className="eyebrow">3D gallery</p>
+    <h2 id="gallery-recovery-heading">Showing the standard gallery</h2>
+    <p aria-live="polite">{degradationCopy[reason]}</p>
+    <div className="gallery-recovery__actions">
+      <button className="button" type="button" onClick={onRetry}>Try 3D again</button>
+      <button className="button button-secondary" type="button" onClick={onContinue}>Continue in standard view</button>
+    </div>
+  </section>
+)
+
+function createFailedRenderer(canvas: unknown): WebGLRenderer {
+  return {
+    domElement: canvas as HTMLCanvasElement,
+    dispose: () => undefined,
+    forceContextLoss: () => undefined,
+    render: () => undefined,
+    setPixelRatio: () => undefined,
+    setSize: () => undefined,
+  } as unknown as WebGLRenderer
+}
+
+const GalleryStandardModePanel = ({ onRetry, ref }: { onRetry: () => void; ref: Ref<HTMLElement> }) => {
+  return (
+    <section ref={ref} className="gallery-recovery gallery-recovery--standard" tabIndex={-1} aria-labelledby="gallery-standard-heading">
+      <p className="eyebrow">Standard gallery</p>
+      <h2 id="gallery-standard-heading">Viewing the standard gallery</h2>
+      <p>You can return to the 3D gallery at any time.</p>
+      <div className="gallery-recovery__actions">
+        <button className="button button-secondary" type="button" onClick={onRetry}>Try 3D again</button>
+      </div>
+    </section>
   )
 }
 
@@ -173,8 +402,9 @@ function GalleryIntroduction({
 
 export class GalleryErrorBoundary extends Component<{
   children: ReactNode
-  fallback: ReactNode
   resetKey: string | number
+  fallback?: ReactNode
+  onError?: (error: Error) => void
 }, { failed: boolean }> {
   state = { failed: false }
 
@@ -188,8 +418,12 @@ export class GalleryErrorBoundary extends Component<{
     }
   }
 
+  componentDidCatch(error: Error) {
+    this.props.onError?.(error)
+  }
+
   render() {
-    return this.state.failed ? this.props.fallback : this.props.children
+    return this.state.failed ? this.props.fallback ?? null : this.props.children
   }
 }
 
