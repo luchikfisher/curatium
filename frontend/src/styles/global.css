@@ -194,6 +194,9 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .virtual-gallery__fallback { margin: 1.5rem 0; color: var(--muted); font-style: italic; }
 .virtual-gallery__experience { position: relative; }
 .gallery-loading-state { position: absolute; z-index: 1; top: 1rem; left: 1rem; margin: 0; border: 1px solid var(--line); padding: .55rem .75rem; background: rgb(255 254 250 / 94%); color: var(--muted); font-size: .9rem; }
+.gallery-texture-recovery { position: absolute; z-index: 1; right: 1rem; bottom: 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; max-width: calc(100% - 2rem); margin: 0; border: 1px solid #8b7355; padding: .65rem .75rem; background: rgb(255 254 250 / 96%); color: var(--ink); box-shadow: 0 2px 12px rgb(35 32 27 / 12%); }
+.gallery-texture-recovery p { margin: 0; line-height: 1.4; }
+.gallery-texture-recovery .button { margin: 0; }
 .gallery-recovery { max-width: 46rem; margin: 2rem 0 1.5rem; border-left: 3px solid #8b7355; padding: 1.25rem 1.5rem; background: #f6f1e8; }
 .gallery-recovery:focus-visible { outline-offset: 4px; }
 .gallery-recovery .eyebrow, .gallery-recovery h2, .gallery-recovery p { margin: 0; }

@@ -1,6 +1,6 @@
 import { Component, Suspense, type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Text, useTexture } from '@react-three/drei'
+import { useTexture } from '@react-three/drei'
 import { DoubleSide, SRGBColorSpace, type Texture, Vector3, WebGLRenderer } from 'three'
 import { ENTRY_CAMERA_POSITION, ENTRY_CAMERA_TARGET } from './geometry'
 import { assignArtworkSlots, fitArtwork } from './slots'
@@ -26,6 +26,22 @@ export type GalleryPhase =
   | { kind: 'degraded'; attempt: number; reason: GalleryDegradationReason }
 
 type GalleryFocusTarget = 'recovery' | 'standard' | 'virtual'
+
+export type ArtworkTextureStatus = 'loading' | 'ready' | 'unavailable'
+
+type ArtworkTextureState = {
+  status: ArtworkTextureStatus
+  url: string
+  attempt: number
+}
+
+function initialTextureStates(assignments: readonly SlottedArtwork[]): Record<number, ArtworkTextureState> {
+  return Object.fromEntries(assignments.map(({ item }) => [item.artwork.id, {
+    status: 'loading',
+    url: item.artwork.imageUrl,
+    attempt: 0,
+  }]))
+}
 
 export function ExhibitionGallery({
   exhibition,
@@ -71,6 +87,8 @@ function GalleryInstance({
     ? { kind: 'loading', attempt: 0 }
     : { kind: 'degraded', attempt: 0, reason: 'webgl-unavailable' })
   const assignments = useMemo(() => assignArtworkSlots(exhibition.items), [exhibition.items])
+  const [textureStates, setTextureStates] = useState<Record<number, ArtworkTextureState>>(() => initialTextureStates(assignments))
+  const [textureRetryVersion, setTextureRetryVersion] = useState(0)
   const [tourStarted, setTourStarted] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [informationOpen, setInformationOpen] = useState(false)
@@ -94,6 +112,14 @@ function GalleryInstance({
   const currentAssignment = assignments[currentSelectedIndex] ?? null
   const viewpoint = viewpointForSlot(currentSelectedIndex)
   const reducedMotion = useReducedMotion()
+  const unavailableTextureStates = useMemo(
+    () => Object.values(textureStates).filter((texture) => texture.status === 'unavailable'),
+    [textureStates],
+  )
+  const unavailableTextureUrls = useMemo(
+    () => [...new Set(unavailableTextureStates.map((texture) => texture.url))],
+    [unavailableTextureStates],
+  )
 
   useEffect(() => {
     if (!informationOpen && restoreInformationFocus.current) {
@@ -118,7 +144,7 @@ function GalleryInstance({
       movedFocus = true
     }
     if (movedFocus) requestedFocusRef.current = null
-  }, [mode, phase])
+  }, [mode, phase, textureRetryVersion])
 
   const closeInformation = () => {
     restoreInformationFocus.current = true
@@ -182,6 +208,39 @@ function GalleryInstance({
     standardContentRef.current?.focus()
   }, [])
 
+  const reportTextureReady = useCallback((artworkId: number, url: string, attempt: number) => {
+    setTextureStates((current) => {
+      const texture = current[artworkId]
+      if (!texture || texture.url !== url || texture.attempt !== attempt || texture.status === 'ready') return current
+      return { ...current, [artworkId]: { ...texture, status: 'ready' } }
+    })
+  }, [])
+
+  const reportTextureUnavailable = useCallback((artworkId: number, url: string, attempt: number) => {
+    setTextureStates((current) => {
+      const texture = current[artworkId]
+      if (!texture || texture.url !== url || texture.attempt !== attempt || texture.status === 'unavailable') return current
+      return { ...current, [artworkId]: { ...texture, status: 'unavailable' } }
+    })
+  }, [])
+
+  const retryUnavailableTextures = useCallback(() => {
+    if (unavailableTextureUrls.length === 0) return
+    unavailableTextureUrls.forEach((url) => useTexture.clear(url))
+    requestedFocusRef.current = 'virtual'
+    setTextureStates((current) => {
+      let changed = false
+      const next = { ...current }
+      for (const [artworkId, texture] of Object.entries(current)) {
+        if (texture.status !== 'unavailable') continue
+        changed = true
+        next[Number(artworkId)] = { ...texture, status: 'loading', attempt: texture.attempt + 1 }
+      }
+      return changed ? next : current
+    })
+    setTextureRetryVersion((version) => version + 1)
+  }, [unavailableTextureUrls])
+
   if (mode === 'standard') {
     return (
       <>
@@ -224,12 +283,21 @@ function GalleryInstance({
           <GalleryCanvasSession
             attempt={rendererAttempt}
             assignments={assignments}
+            textureStates={textureStates}
             viewpoint={viewpoint}
             reducedMotion={reducedMotion}
             onRendererReady={markRendererReady}
             onDegraded={enterDegraded}
+            onTextureReady={reportTextureReady}
+            onTextureUnavailable={reportTextureUnavailable}
           />
           {phase.kind !== 'ready' && <GalleryLoadingState retrying={phase.kind === 'retrying'} />}
+          {unavailableTextureStates.length > 0 && (
+            <GalleryTextureRecovery
+              unavailableCount={unavailableTextureStates.length}
+              onRetry={retryUnavailableTextures}
+            />
+          )}
           {!tourStarted && phase.kind === 'ready' && (
             <GalleryIntroduction
               exhibition={exhibition}
@@ -264,17 +332,23 @@ function GalleryInstance({
 function GalleryCanvasSession({
   attempt,
   assignments,
+  textureStates,
   viewpoint,
   reducedMotion,
   onRendererReady,
   onDegraded,
+  onTextureReady,
+  onTextureUnavailable,
 }: {
   attempt: number
   assignments: readonly SlottedArtwork[]
+  textureStates: Readonly<Record<number, ArtworkTextureState>>
   viewpoint: GalleryViewpoint | null
   reducedMotion: boolean
   onRendererReady: (attempt: number) => void
   onDegraded: (attempt: number, reason: GalleryDegradationReason, moveFocus: boolean) => void
+  onTextureReady: (artworkId: number, url: string, attempt: number) => void
+  onTextureUnavailable: (artworkId: number, url: string, attempt: number) => void
 }) {
   const failedRendererAttemptRef = useRef<number | null>(null)
 
@@ -304,9 +378,12 @@ function GalleryCanvasSession({
     >
       <GalleryScene
         assignments={assignments}
+        textureStates={textureStates}
         viewpoint={viewpoint}
         reducedMotion={reducedMotion}
         onContextLost={() => onDegraded(attempt, 'context-lost', true)}
+        onTextureReady={onTextureReady}
+        onTextureUnavailable={onTextureUnavailable}
       />
     </Canvas>
   )
@@ -317,6 +394,27 @@ function GalleryLoadingState({ retrying }: { retrying: boolean }) {
     <div className="gallery-loading-state" role="status" aria-live="polite">
       {retrying ? 'Trying the 3D gallery again…' : 'Preparing the 3D gallery…'}
     </div>
+  )
+}
+
+function GalleryTextureRecovery({
+  unavailableCount,
+  onRetry,
+}: {
+  unavailableCount: number
+  onRetry: () => void
+}) {
+  const countCopy = unavailableCount === 1
+    ? '1 artwork image is unavailable in the 3D gallery.'
+    : `${unavailableCount} artwork images are unavailable in the 3D gallery.`
+
+  return (
+    <section className="gallery-texture-recovery" aria-label="Unavailable artwork images">
+      <p role="status" aria-live="polite" aria-atomic="true">{countCopy}</p>
+      <button className="button button-secondary" type="button" onClick={onRetry}>
+        Retry unavailable images
+      </button>
+    </section>
   )
 }
 
@@ -429,14 +527,20 @@ export class GalleryErrorBoundary extends Component<{
 
 function GalleryScene({
   assignments,
+  textureStates,
   viewpoint,
   reducedMotion,
   onContextLost,
+  onTextureReady,
+  onTextureUnavailable,
 }: {
   assignments: readonly SlottedArtwork[]
+  textureStates: Readonly<Record<number, ArtworkTextureState>>
   viewpoint: GalleryViewpoint | null
   reducedMotion: boolean
   onContextLost: () => void
+  onTextureReady: (artworkId: number, url: string, attempt: number) => void
+  onTextureUnavailable: (artworkId: number, url: string, attempt: number) => void
 }) {
   return (
     <>
@@ -446,7 +550,22 @@ function GalleryScene({
       <CameraDirector viewpoint={viewpoint} reducedMotion={reducedMotion} />
       <ContextLossWatcher onContextLost={onContextLost} />
       <GalleryRoom />
-      {assignments.map((assignment) => <GalleryArtworkSlot key={assignment.item.id} assignment={assignment} />)}
+      {assignments.map((assignment) => {
+        const textureState = textureStates[assignment.item.artwork.id] ?? {
+          status: 'loading' as const,
+          url: assignment.item.artwork.imageUrl,
+          attempt: 0,
+        }
+        return (
+          <GalleryArtworkSlot
+            key={assignment.item.id}
+            assignment={assignment}
+            textureState={textureState}
+            onTextureReady={onTextureReady}
+            onTextureUnavailable={onTextureUnavailable}
+          />
+        )
+      })}
     </>
   )
 }
@@ -520,19 +639,47 @@ function GalleryRoom() {
   )
 }
 
-function GalleryArtworkSlot({ assignment }: { assignment: SlottedArtwork }) {
+function GalleryArtworkSlot({
+  assignment,
+  textureState,
+  onTextureReady,
+  onTextureUnavailable,
+}: {
+  assignment: SlottedArtwork
+  textureState: ArtworkTextureState
+  onTextureReady: (artworkId: number, url: string, attempt: number) => void
+  onTextureUnavailable: (artworkId: number, url: string, attempt: number) => void
+}) {
+  const artwork = assignment.item.artwork
+  const reportReady = useCallback(
+    () => onTextureReady(artwork.id, artwork.imageUrl, textureState.attempt),
+    [artwork.id, artwork.imageUrl, onTextureReady, textureState.attempt],
+  )
+  const reportUnavailable = useCallback(
+    () => onTextureUnavailable(artwork.id, artwork.imageUrl, textureState.attempt),
+    [artwork.id, artwork.imageUrl, onTextureUnavailable, textureState.attempt],
+  )
+
   return (
-    <group position={assignment.slot.position} rotation={assignment.slot.rotation}>
-      <TextureErrorBoundary fallback={<ArtworkPlaceholder artwork={assignment.item.artwork} />}>
-        <Suspense fallback={<ArtworkPlaceholder artwork={assignment.item.artwork} />}>
-          <TexturedArtwork artwork={assignment.item.artwork} />
-        </Suspense>
-      </TextureErrorBoundary>
+    <group name={`artwork-slot-${artwork.id}`} position={assignment.slot.position} rotation={assignment.slot.rotation}>
+      <group
+        key={`${artwork.id}:${textureState.attempt}`}
+        name={`artwork-texture-${artwork.id}-attempt-${textureState.attempt}`}
+      >
+        <TextureErrorBoundary
+          fallback={<ArtworkPlaceholder />}
+          onError={reportUnavailable}
+        >
+          <Suspense fallback={<ArtworkPlaceholder />}>
+            <TexturedArtwork artwork={artwork} onReady={reportReady} />
+          </Suspense>
+        </TextureErrorBoundary>
+      </group>
     </group>
   )
 }
 
-function TexturedArtwork({ artwork }: { artwork: GalleryArtwork }) {
+function TexturedArtwork({ artwork, onReady }: { artwork: GalleryArtwork; onReady: () => void }) {
   const texture = useTexture(artwork.imageUrl)
   const displayTexture = useMemo(() => {
     const clonedTexture = texture.clone()
@@ -541,24 +688,25 @@ function TexturedArtwork({ artwork }: { artwork: GalleryArtwork }) {
     return clonedTexture
   }, [texture])
   useEffect(() => () => displayTexture.dispose(), [displayTexture])
+  useEffect(() => {
+    onReady()
+  }, [onReady])
   const { width, height } = fitArtwork(aspectFor(texture))
   return (
-    <group>
+    <group name={`textured-artwork-${artwork.id}`}>
       <mesh position={[0, 0, -0.025]}><planeGeometry args={[width + 0.13, height + 0.13]} /><meshStandardMaterial color="#393630" /></mesh>
       <mesh><planeGeometry args={[width, height]} /><meshBasicMaterial map={displayTexture} toneMapped={false} /></mesh>
     </group>
   )
 }
 
-function ArtworkPlaceholder({ artwork }: { artwork: GalleryArtwork }) {
+function ArtworkPlaceholder() {
   const { width, height } = fitArtwork(1)
   return (
-    <group>
+    <group name="artwork-placeholder">
       <mesh position={[0, 0, -0.025]}><planeGeometry args={[width + 0.13, height + 0.13]} /><meshStandardMaterial color="#393630" /></mesh>
       <mesh><planeGeometry args={[width, height]} /><meshStandardMaterial color="#b9b4a9" /></mesh>
-      <Text position={[0, 0, 0.01]} maxWidth={width - 0.35} fontSize={0.22} color="#3d3932" textAlign="center" anchorX="center" anchorY="middle">
-        {artwork.title}
-      </Text>
+      <mesh position={[0, 0, 0.01]}><planeGeometry args={[width * 0.46, 0.08]} /><meshStandardMaterial color="#8c867a" /></mesh>
     </group>
   )
 }
@@ -568,11 +716,19 @@ function aspectFor(texture: Texture): number {
   return image.width && image.height ? image.width / image.height : 1
 }
 
-class TextureErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, { failed: boolean }> {
+class TextureErrorBoundary extends Component<{
+  children: ReactNode
+  fallback: ReactNode
+  onError: () => void
+}, { failed: boolean }> {
   state = { failed: false }
 
   static getDerivedStateFromError() {
     return { failed: true }
+  }
+
+  componentDidCatch() {
+    this.props.onError()
   }
 
   render() {
