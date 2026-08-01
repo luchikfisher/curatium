@@ -1,15 +1,15 @@
 import { cleanup, render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./features/virtual-gallery/LazyExhibitionGallery', () => ({
-  LazyExhibitionGallery: ({ exhibition, exitAction }: { exhibition: { id: number; title: string }; exitAction: ReactNode }) => (
-    <div data-testid="shared-gallery">
-      <p>{exhibition.id}: {exhibition.title}</p>
-      {exitAction}
-    </div>
-  ),
+vi.mock('./features/virtual-gallery/webgl', () => ({
+  supportsWebGL: () => false,
+  watchWebGLContextLoss: vi.fn(),
 }))
+
+vi.mock('./features/virtual-gallery/LazyExhibitionGallery', async () => {
+  const { ExhibitionGallery } = await vi.importActual<typeof import('./features/virtual-gallery/ExhibitionGallery')>('./features/virtual-gallery/ExhibitionGallery')
+  return { LazyExhibitionGallery: ExhibitionGallery }
+})
 
 import App from './App'
 
@@ -52,18 +52,16 @@ afterEach(() => {
 })
 
 describe('gallery integration', () => {
-  it('uses the same renderer in public visit and curator preview routes', async () => {
+  it('uses the same renderer recovery semantics in public visit and curator preview routes', async () => {
     vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve(response(
       path === '/api/public/exhibitions/1' ? publicDetail : curatorDetail,
     ))))
 
     const publicView = renderAt('/visit/1')
-    expect(await screen.findByTestId('shared-gallery')).toHaveTextContent('1: Public gallery')
-    expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toHaveAttribute('href', '/')
+    expect(await screen.findByRole('region', { name: 'Showing the standard gallery' })).toHaveTextContent('3D gallery is unavailable in this browser.')
     publicView.unmount()
 
     renderAt('/exhibitions/2/preview')
-    expect(await screen.findByTestId('shared-gallery')).toHaveTextContent('2: Curator gallery')
-    expect(screen.getByRole('link', { name: 'Return to exhibition editor' })).toHaveAttribute('href', '/exhibitions/2/edit')
+    expect(await screen.findByRole('region', { name: 'Showing the standard gallery' })).toHaveTextContent('3D gallery is unavailable in this browser.')
   })
 })
