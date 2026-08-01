@@ -193,6 +193,15 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .virtual-gallery__canvas { display: block; width: 100% !important; height: clamp(22rem, 65vh, 42rem) !important; border: 1px solid var(--line); background: #e7e4dc; }
 .virtual-gallery__fallback { margin: 1.5rem 0; color: var(--muted); font-style: italic; }
 .virtual-gallery__experience { position: relative; }
+.gallery-experience-shell:focus-visible { outline-offset: 4px; }
+.gallery-chunk-loading { display: grid; gap: 1.5rem; padding: 2rem 0 4rem; }
+.gallery-chunk-loading__status, .gallery-renderer-loading__heading { max-width: 46rem; border-left: 3px solid var(--line); padding: 1rem 1.25rem; background: #f8f6f0; }
+.gallery-chunk-loading__status .eyebrow, .gallery-chunk-loading__status h2, .gallery-chunk-loading__status p, .gallery-renderer-loading__heading .eyebrow, .gallery-renderer-loading__heading h2, .gallery-renderer-loading__heading p { margin: 0; }
+.gallery-chunk-loading__status h2, .gallery-renderer-loading__heading h2 { margin-top: .35rem; font-size: 1.45rem; }
+.gallery-chunk-loading__status > p:not(.eyebrow), .gallery-renderer-loading__heading > p:not(.eyebrow) { margin-top: .55rem; color: var(--muted); line-height: 1.5; }
+.gallery-chunk-loading__status .virtual-gallery__actions { margin-top: .85rem; }
+.gallery-renderer-loading { display: grid; gap: 1.25rem; margin-top: 1.5rem; }
+.gallery-loading-standard { min-width: 0; }
 .gallery-loading-state { position: absolute; z-index: 1; top: 1rem; left: 1rem; margin: 0; border: 1px solid var(--line); padding: .55rem .75rem; background: rgb(255 254 250 / 94%); color: var(--muted); font-size: .9rem; }
 .gallery-texture-recovery { position: absolute; z-index: 1; right: 1rem; bottom: 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; max-width: calc(100% - 2rem); margin: 0; border: 1px solid #8b7355; padding: .65rem .75rem; background: rgb(255 254 250 / 96%); color: var(--ink); box-shadow: 0 2px 12px rgb(35 32 27 / 12%); }
 .gallery-texture-recovery p { margin: 0; line-height: 1.4; }

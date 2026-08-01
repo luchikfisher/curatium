@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { StrictMode, useEffect, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -215,12 +215,62 @@ describe('ExhibitionGallery renderer recovery', () => {
     renderGallery()
 
     expect(screen.getByText('Preparing the 3D gallery…')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Standard gallery available while the 3D renderer loads' })).toHaveTextContent('Standard exhibition content')
+    expect(screen.getByRole('heading', { name: 'Available while the 3D gallery prepares' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Showing the standard gallery' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
 
     markRendererReady()
 
     expect(screen.queryByText('Preparing the 3D gallery…')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Standard gallery available while the 3D renderer loads' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Begin tour' })).toBeEnabled()
+  })
+
+  it('keeps standard content operable while the renderer loads', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    const useStandardContent = vi.fn()
+    renderGallery(<button type="button" onClick={useStandardContent}>Use standard gallery content</button>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use standard gallery content' }))
+
+    expect(useStandardContent).toHaveBeenCalledOnce()
+    expect(screen.getByText('Preparing the 3D gallery…')).toBeInTheDocument()
+  })
+
+  it('moves focus to the virtual gallery when renderer readiness removes a focused loading fallback control', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderGallery(<button type="button">Use standard gallery content</button>)
+    const loadingFallbackControl = screen.getByRole('button', { name: 'Use standard gallery content' })
+    loadingFallbackControl.focus()
+    expect(loadingFallbackControl).toHaveFocus()
+
+    markRendererReady()
+
+    expect(screen.getByRole('region', { name: 'Gallery test' })).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('does not steal focus from outside the renderer-loading fallback when the renderer becomes ready', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    render(
+      <>
+        <button type="button">Outside the gallery</button>
+        <ExhibitionGallery
+          exhibition={exhibition}
+          headingLevel={1}
+          fallback={<button type="button">Use standard gallery content</button>}
+          exitAction={<a href="/">Exit to exhibitions</a>}
+        />
+      </>,
+    )
+    const outsideControl = screen.getByRole('button', { name: 'Outside the gallery' })
+    outsideControl.focus()
+    expect(outsideControl).toHaveFocus()
+
+    markRendererReady()
+
+    expect(outsideControl).toHaveFocus()
   })
 
   it('consumes an asynchronous renderer bootstrap failure without an unhandled rejection', async () => {
@@ -232,6 +282,8 @@ describe('ExhibitionGallery renderer recovery', () => {
     renderGallery()
 
     await waitFor(() => expect(recoveryPanel()).toHaveTextContent('The 3D gallery could not start.'))
+    expect(screen.queryByText('Preparing the 3D gallery…')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Available while the 3D gallery prepares' })).not.toBeInTheDocument()
     expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'View as standard gallery' })).not.toBeInTheDocument()
@@ -358,6 +410,24 @@ describe('ExhibitionGallery renderer recovery', () => {
     expect(screen.getByRole('button', { name: 'Continue in standard view' })).toBeInTheDocument()
   })
 
+  it('discards renderer degradation when the exhibition route changes', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    const firstExhibition = { ...exhibition, id: 1, title: 'First gallery' }
+    const nextExhibition = { ...exhibition, id: 2, title: 'Next gallery' }
+    const view = render(textureGalleryElement(firstExhibition))
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Lose renderer context' }))
+    expect(recoveryPanel()).toHaveTextContent('The 3D gallery stopped responding.')
+
+    view.rerender(textureGalleryElement(nextExhibition))
+
+    expect(screen.queryByRole('region', { name: 'Showing the standard gallery' })).not.toBeInTheDocument()
+    expect(screen.getByText('Preparing the 3D gallery…')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Next gallery' })).toBeInTheDocument()
+    markRendererReady()
+    expect(screen.getByRole('button', { name: 'Begin tour' })).toBeEnabled()
+  })
+
   it('keeps the gallery boundary reset behavior for a new route key', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { rerender } = render(
@@ -386,6 +456,28 @@ describe('ExhibitionGallery texture recovery', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
   }
 
+  it('does not suppress the handled texture diagnostic reported by R3F', () => {
+    let preventedBeforeTestCleanup = true
+    const observeDiagnostic = (event: ErrorEvent) => {
+      preventedBeforeTestCleanup = event.defaultPrevented
+      event.preventDefault()
+    }
+    const handledDiagnostic = new ErrorEvent('error', {
+      cancelable: true,
+      error: new Error(`Could not load ${firstUrl}: request failed`),
+      message: `Uncaught Error: Could not load ${firstUrl}: request failed`,
+    })
+
+    window.addEventListener('error', observeDiagnostic)
+    try {
+      window.dispatchEvent(handledDiagnostic)
+    } finally {
+      window.removeEventListener('error', observeDiagnostic)
+    }
+
+    expect(preventedBeforeTestCleanup).toBe(false)
+  })
+
   async function waitForUnavailableCount(count: number) {
     const copy = count === 1
       ? '1 artwork image is unavailable in the 3D gallery.'
@@ -405,7 +497,7 @@ describe('ExhibitionGallery texture recovery', () => {
     expect(document.querySelectorAll('group[name^="artwork-slot-"]')).toHaveLength(4)
     expect(document.querySelectorAll('group[name="artwork-placeholder"]')).toHaveLength(1)
     expect(document.querySelector('group[name="textured-artwork-102"]')).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'Artwork navigation' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Artwork navigation' })).toHaveFocus()
     expect(screen.getByRole('button', { name: 'Next artwork' })).toBeEnabled()
   })
 
@@ -583,6 +675,37 @@ describe('ExhibitionGallery texture recovery', () => {
     expect(textureAttempt(102, 0)).toBeInTheDocument()
     expect(textureAttempt(101, 1)).not.toBeInTheDocument()
     expect(textureState.clearCalls).toEqual([])
+  })
+
+  it('discards unavailable texture counts when the exhibition route changes', async () => {
+    enableTextureScene()
+    textureState.failedUrls.add(firstUrl)
+    const firstExhibition = artworkExhibition([firstUrl])
+    const view = render(textureGalleryElement(firstExhibition))
+    await waitForUnavailableCount(1)
+
+    textureState.failedUrls.delete(firstUrl)
+    const nextExhibition = { ...artworkExhibition([secondUrl]), id: 2, title: 'Next gallery' }
+    view.rerender(textureGalleryElement(nextExhibition))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Unavailable artwork images' })).not.toBeInTheDocument())
+    expect(textureAttempt(101, 0)).toBeInTheDocument()
+    expect(textureState.clearCalls).toEqual([])
+  })
+
+  it('does not depend on StrictMode duplicate effects for texture recovery', async () => {
+    enableTextureScene()
+    textureState.failedUrls.add(firstUrl)
+    render(<StrictMode>{textureGalleryElement(artworkExhibition([firstUrl, secondUrl]))}</StrictMode>)
+    await waitForUnavailableCount(1)
+
+    textureState.failedUrls.delete(firstUrl)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry unavailable images' }))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Unavailable artwork images' })).not.toBeInTheDocument())
+    expect(textureState.clearCalls).toEqual([firstUrl])
+    expect(textureAttempt(101, 1)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
   })
 
   it('uses the same unavailable-image action for public and curator gallery fallbacks', async () => {

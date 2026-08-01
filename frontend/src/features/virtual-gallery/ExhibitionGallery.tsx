@@ -1,4 +1,4 @@
-import { Component, Suspense, type ReactNode, type Ref, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, type ReactNode, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useTexture } from '@react-three/drei'
 import { DoubleSide, SRGBColorSpace, type Texture, Vector3, WebGLRenderer } from 'three'
@@ -25,7 +25,7 @@ export type GalleryPhase =
   | { kind: 'retrying'; attempt: number }
   | { kind: 'degraded'; attempt: number; reason: GalleryDegradationReason }
 
-type GalleryFocusTarget = 'recovery' | 'standard' | 'virtual'
+type GalleryFocusTarget = 'recovery' | 'standard' | 'virtual' | 'navigation'
 
 export type ArtworkTextureStatus = 'loading' | 'ready' | 'unavailable'
 
@@ -93,6 +93,7 @@ function GalleryInstance({
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [informationOpen, setInformationOpen] = useState(false)
   const informationButtonRef = useRef<HTMLButtonElement>(null)
+  const navigationRef = useRef<HTMLElement>(null)
   const restoreInformationFocus = useRef(false)
   const activeAttemptRef = useRef(rendererAttempt)
   const virtualSessionActiveRef = useRef(initialWebGLSupport)
@@ -103,6 +104,7 @@ function GalleryInstance({
   const recoveryRef = useRef<HTMLElement>(null)
   const standardModeRef = useRef<HTMLElement>(null)
   const standardContentRef = useRef<HTMLDivElement>(null)
+  const rendererLoadingContentRef = useRef<HTMLElement>(null)
   const virtualGalleryRef = useRef<HTMLElement>(null)
   const currentSelectedIndex = !tourStarted
     ? -1
@@ -128,7 +130,7 @@ function GalleryInstance({
     }
   }, [informationOpen])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const requestedTarget = requestedFocusRef.current
     let movedFocus = false
     if (requestedTarget === 'recovery' && phase.kind === 'degraded') {
@@ -143,8 +145,12 @@ function GalleryInstance({
       virtualGalleryRef.current?.focus()
       movedFocus = true
     }
+    if (requestedTarget === 'navigation' && phase.kind === 'ready' && tourStarted) {
+      navigationRef.current?.focus()
+      movedFocus = true
+    }
     if (movedFocus) requestedFocusRef.current = null
-  }, [mode, phase, textureRetryVersion])
+  }, [mode, phase, textureRetryVersion, tourStarted])
 
   const closeInformation = () => {
     restoreInformationFocus.current = true
@@ -153,6 +159,7 @@ function GalleryInstance({
 
   const beginTour = () => {
     if (assignments.length === 0) return
+    requestedFocusRef.current = 'navigation'
     setSelectedIndex(0)
     setTourStarted(true)
   }
@@ -169,6 +176,9 @@ function GalleryInstance({
 
   const markRendererReady = useCallback((attempt: number) => {
     if (!virtualSessionActiveRef.current || attempt !== activeAttemptRef.current) return
+    if (rendererLoadingContentRef.current?.contains(document.activeElement)) {
+      requestedFocusRef.current = 'virtual'
+    }
     setPhase((current) => {
       if (current.attempt !== attempt || (current.kind !== 'loading' && current.kind !== 'retrying')) return current
       return { kind: 'ready', attempt }
@@ -314,8 +324,16 @@ function GalleryInstance({
             />
           )}
         </div>
+        {phase.kind !== 'ready' && (
+          <GalleryRendererLoadingStandardContent
+            ref={rendererLoadingContentRef}
+            fallback={fallback}
+            retrying={phase.kind === 'retrying'}
+          />
+        )}
         {phase.kind === 'ready' && tourStarted && (
           <GalleryNavigation
+            navigationRef={navigationRef}
             assignments={assignments}
             selectedIndex={currentSelectedIndex}
             onSelect={setSelectedIndex}
@@ -394,6 +412,32 @@ function GalleryLoadingState({ retrying }: { retrying: boolean }) {
     <div className="gallery-loading-state" role="status" aria-live="polite">
       {retrying ? 'Trying the 3D gallery again…' : 'Preparing the 3D gallery…'}
     </div>
+  )
+}
+
+function GalleryRendererLoadingStandardContent({
+  fallback,
+  retrying,
+  ref,
+}: {
+  fallback: ReactNode
+  retrying: boolean
+  ref: Ref<HTMLElement>
+}) {
+  return (
+    <section ref={ref} className="gallery-renderer-loading" aria-labelledby="gallery-renderer-loading-heading">
+      <div className="gallery-renderer-loading__heading">
+        <p className="eyebrow">Standard gallery</p>
+        <h2 id="gallery-renderer-loading-heading">Available while the 3D gallery prepares</h2>
+        <p>{retrying
+          ? 'You can continue with the standard gallery while this new 3D session starts.'
+          : 'You can continue with the standard gallery while the 3D session starts.'}
+        </p>
+      </div>
+      <div className="gallery-loading-standard" role="region" aria-label="Standard gallery available while the 3D renderer loads">
+        {fallback}
+      </div>
+    </section>
   )
 }
 

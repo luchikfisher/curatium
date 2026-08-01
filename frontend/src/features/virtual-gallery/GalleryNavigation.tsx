@@ -8,6 +8,7 @@ export function GalleryNavigation({
   onOpenInformation,
   informationOpen = false,
   informationButtonRef,
+  navigationRef,
 }: {
   assignments: readonly SlottedArtwork[]
   selectedIndex: number
@@ -15,6 +16,7 @@ export function GalleryNavigation({
   onOpenInformation?: () => void
   informationOpen?: boolean
   informationButtonRef?: RefObject<HTMLButtonElement | null>
+  navigationRef?: RefObject<HTMLElement | null>
 }) {
   const current = assignments[selectedIndex] ?? null
   const hasPrevious = selectedIndex > 0
@@ -32,7 +34,7 @@ export function GalleryNavigation({
   }
 
   return (
-    <nav className="gallery-navigation" aria-label="Artwork navigation" tabIndex={0} onKeyDown={handleKeyDown}>
+    <nav ref={navigationRef} className="gallery-navigation" aria-label="Artwork navigation" tabIndex={0} onKeyDown={handleKeyDown}>
       {current ? (
         <p className="gallery-navigation__current" role="status" aria-live="polite">
           Artwork {selectedIndex + 1} of {assignments.length}: {current.item.artwork.title}
