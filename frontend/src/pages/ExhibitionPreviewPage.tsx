@@ -23,6 +23,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const authoritativeRefreshFocusPending = useRef(false)
   const [publicationMutation, setPublicationMutation] = useState<'publish' | 'unpublish' | null>(null)
   const [publicationError, setPublicationError] = useState<Error | null>(null)
+  const [publicationErrorAction, setPublicationErrorAction] = useState<'publish' | 'unpublish' | null>(null)
   const [publicationSuccess, setPublicationSuccess] = useState<string | null>(null)
   const [publicationNotFound, setPublicationNotFound] = useState(false)
   const [focusPublicationNotFound, setFocusPublicationNotFound] = useState(false)
@@ -43,6 +44,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
 
   const clearPublicationFeedback = () => {
     setPublicationError(null)
+    setPublicationErrorAction(null)
     setPublicationSuccess(null)
   }
 
@@ -54,6 +56,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
     mutationController.current = controller
     setPublicationMutation(action)
     setPublicationError(null)
+    setPublicationErrorAction(null)
     setPublicationSuccess(null)
 
     try {
@@ -73,6 +76,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         setPublicationNotFound(true)
         return false
       }
+      setPublicationErrorAction(action)
       setPublicationError(reason instanceof Error ? reason : new Error('Unknown publication error'))
       if (
         isFrontendError(reason) &&
@@ -105,6 +109,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
     ? null
     : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
   const isPublished = exhibition.status === 'PUBLISHED'
+  const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
 
   return (
     <section className="exhibition-preview">
@@ -138,10 +143,11 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           <div><dt>Last updated</dt><dd><time dateTime={exhibition.updatedAt}>{formatTimestamp(exhibition.updatedAt)}</time></dd></div>
         </dl>
         <PublicationControls
+          key={reconciledUnpublishDraft ? 'reconciled-unpublish-draft' : 'publication-controls'}
           exhibition={exhibition}
           coverItem={coverItem}
           mutation={publicationMutation}
-          error={publicationError}
+          error={reconciledUnpublishDraft ? null : publicationError}
           success={publicationSuccess}
           onTransition={transitionPublication}
           onClearFeedback={clearPublicationFeedback}
