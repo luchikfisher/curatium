@@ -19,51 +19,73 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const { data: exhibition, error, retry, replace } = useExhibition(exhibitionId, getExhibition)
   const mutationController = useRef<AbortController | null>(null)
   const mutationInFlight = useRef(false)
+  const previewStatusRef = useRef<HTMLParagraphElement | null>(null)
+  const authoritativeRefreshFocusPending = useRef(false)
   const [publicationMutation, setPublicationMutation] = useState<'publish' | 'unpublish' | null>(null)
   const [publicationError, setPublicationError] = useState<Error | null>(null)
+  const [publicationErrorAction, setPublicationErrorAction] = useState<'publish' | 'unpublish' | null>(null)
   const [publicationSuccess, setPublicationSuccess] = useState<string | null>(null)
   const [publicationNotFound, setPublicationNotFound] = useState(false)
+  const [focusPublicationNotFound, setFocusPublicationNotFound] = useState(false)
 
   useEffect(() => () => mutationController.current?.abort(), [])
+  useEffect(() => {
+    if (!authoritativeRefreshFocusPending.current || !exhibition || exhibition.id !== exhibitionId) return
+    authoritativeRefreshFocusPending.current = false
+    previewStatusRef.current?.focus({ preventScroll: true })
+  }, [exhibition, exhibitionId])
 
   const retryPreview = () => {
     setPublicationNotFound(false)
+    setFocusPublicationNotFound(false)
     setPublicationError(null)
     retry()
   }
 
-  const transitionPublication = async (action: 'publish' | 'unpublish') => {
-    if (mutationInFlight.current) return
+  const clearPublicationFeedback = () => {
+    setPublicationError(null)
+    setPublicationErrorAction(null)
+    setPublicationSuccess(null)
+  }
+
+  const transitionPublication = async (action: 'publish' | 'unpublish'): Promise<boolean> => {
+    if (mutationInFlight.current) return false
 
     mutationInFlight.current = true
     const controller = new AbortController()
     mutationController.current = controller
     setPublicationMutation(action)
     setPublicationError(null)
+    setPublicationErrorAction(null)
     setPublicationSuccess(null)
 
     try {
       const committedExhibition = action === 'publish'
         ? await publishExhibition(exhibitionId, controller.signal)
         : await unpublishExhibition(exhibitionId, controller.signal)
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) return false
       replace(committedExhibition)
       setPublicationSuccess(action === 'publish'
         ? 'Exhibition published. Curatorial editing is now read-only.'
         : 'Exhibition unpublished. Curatorial editing is available again.')
+      return true
     } catch (reason) {
-      if (controller.signal.aborted || isAbortError(reason)) return
+      if (controller.signal.aborted || isAbortError(reason)) return false
       if (isFrontendError(reason) && reason.code === 'EXHIBITION_NOT_FOUND') {
+        setFocusPublicationNotFound(true)
         setPublicationNotFound(true)
-        return
+        return false
       }
+      setPublicationErrorAction(action)
       setPublicationError(reason instanceof Error ? reason : new Error('Unknown publication error'))
       if (
         isFrontendError(reason) &&
         (reason.code === 'PUBLISHED_EXHIBITION_READ_ONLY' || reason.code === 'INVALID_PUBLICATION_STATE')
       ) {
+        authoritativeRefreshFocusPending.current = true
         retry()
       }
+      return false
     } finally {
       if (mutationController.current === controller) {
         mutationInFlight.current = false
@@ -74,7 +96,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   }
 
   if (publicationNotFound || (!exhibition || exhibition.id !== exhibitionId) && isFrontendError(error) && error.status === 404) {
-    return <PreviewNotFound onRetry={retryPreview} />
+    return <PreviewNotFound onRetry={retryPreview} focusOnMount={focusPublicationNotFound} />
   }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
@@ -87,12 +109,13 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
     ? null
     : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
   const isPublished = exhibition.status === 'PUBLISHED'
+  const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
 
   return (
     <section className="exhibition-preview">
       <div className="preview-heading">
         <p className="eyebrow">Curator preview</p>
-        <p className={`preview-status preview-status--${exhibition.status.toLowerCase()}`} role="status">
+        <p ref={previewStatusRef} className={`preview-status preview-status--${exhibition.status.toLowerCase()}`} role="status" tabIndex={-1}>
           {isPublished ? 'Published exhibition' : 'Draft preview'}
         </p>
         <h1>{exhibition.title}</h1>
@@ -120,12 +143,14 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           <div><dt>Last updated</dt><dd><time dateTime={exhibition.updatedAt}>{formatTimestamp(exhibition.updatedAt)}</time></dd></div>
         </dl>
         <PublicationControls
+          key={reconciledUnpublishDraft ? 'reconciled-unpublish-draft' : 'publication-controls'}
           exhibition={exhibition}
           coverItem={coverItem}
           mutation={publicationMutation}
-          error={publicationError}
+          error={reconciledUnpublishDraft ? null : publicationError}
           success={publicationSuccess}
           onTransition={transitionPublication}
+          onClearFeedback={clearPublicationFeedback}
         />
       </section>
       <section className="preview-introduction" aria-labelledby="preview-introduction-heading">
@@ -159,14 +184,21 @@ function PublicationControls({
   error,
   success,
   onTransition,
+  onClearFeedback,
 }: {
   exhibition: ExhibitionDetail
   coverItem: ExhibitionItem | null
   mutation: 'publish' | 'unpublish' | null
   error: Error | null
   success: string | null
-  onTransition: (action: 'publish' | 'unpublish') => void
+  onTransition: (action: 'publish' | 'unpublish') => Promise<boolean>
+  onClearFeedback: () => void
 }) {
+  const [confirmingUnpublish, setConfirmingUnpublish] = useState(false)
+  const unpublishTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const cancelUnpublishRef = useRef<HTMLButtonElement | null>(null)
+  const confirmUnpublishRef = useRef<HTMLButtonElement | null>(null)
+  const successRef = useRef<HTMLParagraphElement | null>(null)
   const isPublished = exhibition.status === 'PUBLISHED'
   const isPublishing = mutation === 'publish'
   const isUnpublishing = mutation === 'unpublish'
@@ -175,6 +207,47 @@ function PublicationControls({
     { label: 'At least one artwork', met: exhibition.items.length > 0 },
     { label: 'A cover selected from an included artwork', met: coverItem !== null },
   ]
+
+  useEffect(() => {
+    if (confirmingUnpublish) cancelUnpublishRef.current?.focus({ preventScroll: true })
+  }, [confirmingUnpublish])
+
+  function requestUnpublish() {
+    if (mutation !== null) return
+    onClearFeedback()
+    setConfirmingUnpublish(true)
+  }
+
+  function cancelUnpublish() {
+    if (mutation !== null) return
+    onClearFeedback()
+    setConfirmingUnpublish(false)
+    window.setTimeout(() => {
+      if (unpublishTriggerRef.current?.isConnected) {
+        unpublishTriggerRef.current.focus({ preventScroll: true })
+      } else {
+        document.getElementById('main-content')?.focus({ preventScroll: true })
+      }
+    }, 0)
+  }
+
+  async function confirmUnpublish() {
+    if (mutation !== null) return
+    const succeeded = await onTransition('unpublish')
+    if (succeeded) {
+      setConfirmingUnpublish(false)
+      window.setTimeout(() => successRef.current?.focus({ preventScroll: true }), 0)
+    } else {
+      window.setTimeout(() => confirmUnpublishRef.current?.focus({ preventScroll: true }), 0)
+    }
+  }
+
+  function handleConfirmationKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' && mutation === null) {
+      event.preventDefault()
+      cancelUnpublish()
+    }
+  }
 
   return (
     <div className="preview-publication__controls">
@@ -191,16 +264,55 @@ function PublicationControls({
         ))}
       </ul>
       {error && <PublicationError error={error} />}
-      {success && <p className="form-success" role="status">{success}</p>}
-      <button
-        className="button"
-        type="button"
-        disabled={mutation !== null}
-        aria-describedby="publication-prerequisites"
-        onClick={() => onTransition(isPublished ? 'unpublish' : 'publish')}
-      >
-        {isPublishing ? 'Publishing…' : isUnpublishing ? 'Unpublishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}
-      </button>
+      {success && <p ref={successRef} className="form-success" role="status" tabIndex={-1}>{success}</p>}
+      {isPublished && confirmingUnpublish ? (
+        <div
+          className="unpublish-confirmation"
+          role="alertdialog"
+          aria-labelledby="unpublish-confirmation-heading"
+          aria-describedby="unpublish-confirmation-description"
+          onKeyDown={handleConfirmationKeyDown}
+        >
+          <h4 id="unpublish-confirmation-heading">Unpublish this exhibition?</h4>
+          <p id="unpublish-confirmation-description">
+            The public exhibition will become unavailable. All exhibition content will be preserved, and the exhibition will return to an editable draft.
+          </p>
+          <div className="unpublish-confirmation__actions">
+            <button
+              ref={cancelUnpublishRef}
+              className="button button-secondary"
+              type="button"
+              disabled={isUnpublishing}
+              onClick={cancelUnpublish}
+            >
+              Cancel
+            </button>
+            <button
+              ref={confirmUnpublishRef}
+              className="button button-danger"
+              type="button"
+              disabled={isUnpublishing}
+              onClick={confirmUnpublish}
+            >
+              {isUnpublishing ? 'Unpublishing…' : error ? 'Try unpublishing again' : 'Confirm unpublish'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          ref={isPublished ? unpublishTriggerRef : undefined}
+          className="button"
+          type="button"
+          disabled={mutation !== null}
+          aria-describedby={isPublished ? undefined : 'publication-prerequisites'}
+          onClick={() => {
+            if (isPublished) requestUnpublish()
+            else void onTransition('publish')
+          }}
+        >
+          {isPublishing ? 'Publishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}
+        </button>
+      )}
     </div>
   )
 }
@@ -292,11 +404,17 @@ function InvalidExhibitionRoute() {
   )
 }
 
-function PreviewNotFound({ onRetry }: { onRetry: () => void }) {
+function PreviewNotFound({ onRetry, focusOnMount }: { onRetry: () => void; focusOnMount: boolean }) {
+  const headingRef = useRef<HTMLHeadingElement | null>(null)
+
+  useEffect(() => {
+    if (focusOnMount) headingRef.current?.focus({ preventScroll: true })
+  }, [focusOnMount])
+
   return (
     <section className="state-panel editor-state" role="alert">
       <p className="eyebrow">Not found</p>
-      <h1>Exhibition not found</h1>
+      <h1 ref={headingRef} tabIndex={focusOnMount ? -1 : undefined}>Exhibition not found</h1>
       <p>This exhibition may have been deleted or the address may be incorrect.</p>
       <button className="button button-secondary" type="button" onClick={onRetry}>Try again</button>
       <Link className="text-link" to="/exhibitions">Return to exhibitions</Link>

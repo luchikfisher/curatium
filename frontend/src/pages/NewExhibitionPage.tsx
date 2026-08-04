@@ -6,6 +6,10 @@ import {
 } from '../features/exhibitions/ExhibitionMetadataForm'
 import { createExhibition } from '../features/exhibitions/api'
 import { applyMetadataRequestError } from '../features/exhibitions/formErrors'
+import {
+  DirtyNavigationConfirmation,
+} from '../features/exhibitions/DirtyNavigationGuard'
+import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import type { MetadataFieldErrors } from '../features/exhibitions/metadataValidation'
 import type { ExhibitionMetadata } from '../features/exhibitions/types'
 
@@ -17,11 +21,13 @@ const emptyMetadata: ExhibitionMetadata = {
 
 export function NewExhibitionPage() {
   const navigate = useNavigate()
+  const [committedBaseline, setCommittedBaseline] = useState(emptyMetadata)
   const [metadata, setMetadata] = useState(emptyMetadata)
   const [fieldErrors, setFieldErrors] = useState<MetadataFieldErrors>({})
   const [error, setError] = useState<FrontendError | Error | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const requestController = useRef<AbortController | null>(null)
+  const dirtyNavigation = useDirtyNavigation(!metadataMatches(metadata, committedBaseline))
 
   useEffect(() => () => requestController.current?.abort(), [])
 
@@ -41,7 +47,16 @@ export function NewExhibitionPage() {
     try {
       const exhibition = await createExhibition(metadata, controller.signal)
       if (!controller.signal.aborted) {
-        navigate(`/exhibitions/${exhibition.id}/edit`)
+        const committedMetadata = {
+          title: exhibition.title,
+          summary: exhibition.summary ?? '',
+          introduction: exhibition.introduction ?? '',
+        }
+        setCommittedBaseline(committedMetadata)
+        setMetadata(committedMetadata)
+        const destination = `/exhibitions/${exhibition.id}/edit`
+        dirtyNavigation.allowNextNavigation(destination)
+        navigate(destination)
       }
     } catch (reason) {
       if (!controller.signal.aborted) applyMetadataRequestError(reason, setFieldErrors, setError)
@@ -71,8 +86,15 @@ export function NewExhibitionPage() {
         />
         <Link className="text-link editor-cancel" to="/exhibitions">Cancel</Link>
       </section>
+      <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
   )
+}
+
+function metadataMatches(draft: ExhibitionMetadata, baseline: ExhibitionMetadata): boolean {
+  return draft.title === baseline.title
+    && (draft.summary ?? '') === (baseline.summary ?? '')
+    && (draft.introduction ?? '') === (baseline.introduction ?? '')
 }
 
 function RequestError({ error }: { error: FrontendError | Error | null }) {

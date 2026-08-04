@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createExhibition, getExhibition, listCuratorExhibitions, searchMuseumArtworks, updateExhibition } from './api'
+import {
+  createExhibition,
+  getExhibition,
+  listCuratorExhibitions,
+  removeExhibitionItem,
+  searchMuseumArtworks,
+  updateExhibition,
+} from './api'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -187,6 +194,27 @@ describe('exhibition detail requests', () => {
     }), { status: 200 })))
 
     await expect(getExhibition(1)).rejects.toMatchObject({ kind: 'malformed', status: 200 })
+  })
+
+  it('returns and validates the committed exhibition detail after item deletion', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 1,
+      title: 'Lines of Light',
+      status: 'DRAFT',
+      items: [],
+      createdAt: '2026-07-18T12:00:00Z',
+      updatedAt: '2026-07-18T12:00:00Z',
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(removeExhibitionItem(1, 7)).resolves.toMatchObject({
+      id: 1,
+      coverArtworkId: null,
+      items: [],
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/exhibitions/1/items/7', expect.objectContaining({
+      method: 'DELETE',
+    }))
   })
 })
 

@@ -241,7 +241,70 @@ describe('curator exhibition preview', () => {
     expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
   })
 
-  it('unpublishes with committed preserved data and clears publishedAt', async () => {
+  it('opens an accessible unpublish confirmation without sending a mutation', async () => {
+    const first = item(1)
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+
+    const confirmation = screen.getByRole('alertdialog', { name: 'Unpublish this exhibition?' })
+    expect(confirmation).toHaveTextContent('The public exhibition will become unavailable.')
+    expect(confirmation).toHaveTextContent('All exhibition content will be preserved')
+    expect(confirmation).toHaveTextContent('return to an editable draft')
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Confirm unpublish' })).toBeEnabled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('cancels unpublish without a request and restores trigger focus', async () => {
+    const first = item(1)
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('treats Escape from the unpublish confirmation as Cancel', async () => {
+    const first = item(1)
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('unpublishes once with committed preserved data and clears publishedAt', async () => {
     const first = item(1, { title: 'Preserved cover' })
     first.curatorialNote = 'Preserved note.'
     const second = item(2, { title: 'Preserved second artwork', artistDisplay: 'Preserved artist' })
@@ -255,12 +318,15 @@ describe('curator exhibition preview', () => {
       coverArtworkId: first.artwork.id,
     })
     const unpublished = { ...published, status: 'DRAFT', publishedAt: null, updatedAt: '2026-07-23T10:00:00Z' }
-    vi.stubGlobal('fetch', vi.fn()
+    const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(published))
-      .mockResolvedValueOnce(respond(unpublished)))
+      .mockResolvedValueOnce(respond(unpublished))
+    vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/preview')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
 
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
     expect(screen.queryByText('Published', { selector: 'dt' })).not.toBeInTheDocument()
@@ -274,7 +340,106 @@ describe('curator exhibition preview', () => {
     ])
     expect(screen.getByText('Preserved artist')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Edit metadata' })).toBeInTheDocument()
-    expect(screen.getByText('Exhibition unpublished. Curatorial editing is available again.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Curate artworks' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'View metadata' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Unpublish exhibition' })).not.toBeInTheDocument()
+    const success = screen.getByText('Exhibition unpublished. Curatorial editing is available again.')
+    expect(success).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/exhibitions/1/unpublish', expect.objectContaining({ method: 'POST' }))
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('prevents duplicate confirmed unpublish submissions while pending', async () => {
+    const first = item(1)
+    let resolveUnpublish: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveUnpublish = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    const confirm = screen.getByRole('button', { name: 'Confirm unpublish' })
+    await userEvent.click(confirm)
+    const pending = screen.getByRole('button', { name: 'Unpublishing…' })
+    expect(pending).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
+    await userEvent.click(pending)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    resolveUnpublish?.(respond(detail({
+      status: 'DRAFT',
+      publishedAt: null,
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+  })
+
+  it('preserves published state after unpublish failure and allows retry', async () => {
+    const first = item(1)
+    const published = detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(published))
+      .mockResolvedValueOnce(respond(error('SERVICE_UNAVAILABLE', 'Unpublish is temporarily unavailable.', 503), 503))
+      .mockResolvedValueOnce(respond({ ...published, status: 'DRAFT', publishedAt: null }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unpublish is temporarily unavailable.')
+    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View metadata' })).toBeInTheDocument()
+    expect(screen.queryByText('Exhibition unpublished. Curatorial editing is available again.')).not.toBeInTheDocument()
+    const retryUnpublish = screen.getByRole('button', { name: 'Try unpublishing again' })
+    expect(retryUnpublish).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+
+    await userEvent.click(retryUnpublish)
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(screen.getByText('Exhibition unpublished. Curatorial editing is available again.')).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('allows cancellation after unpublish failure without another mutation', async () => {
+    const first = item(1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+      .mockResolvedValueOnce(respond(error('SERVICE_UNAVAILABLE', 'Try later.', 503), 503))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
+    await screen.findByRole('alert')
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toHaveFocus()
+    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('prevents duplicate publication submissions while the request is pending', async () => {
@@ -323,8 +488,14 @@ describe('curator exhibition preview', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
   })
 
-  it('refreshes a stale published exhibition after the server reports that it is already a draft', async () => {
+  it('clears stale unpublish confirmation state after reconciling an authoritative draft', async () => {
     const first = item(1)
+    const authoritativeDraft = detail({
+      status: 'DRAFT',
+      publishedAt: null,
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail({
         status: 'PUBLISHED',
@@ -333,21 +504,34 @@ describe('curator exhibition preview', () => {
         coverArtworkId: first.artwork.id,
       })))
       .mockResolvedValueOnce(respond(error('INVALID_PUBLICATION_STATE', 'The exhibition is already a draft.', 409), 409))
-      .mockResolvedValueOnce(respond(detail({
-        status: 'DRAFT',
-        publishedAt: null,
-        items: [first],
-        coverArtworkId: first.artwork.id,
-      })))
+      .mockResolvedValueOnce(respond(authoritativeDraft))
+      .mockResolvedValueOnce(respond({
+        ...authoritativeDraft,
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-24T09:00:00Z',
+      }))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/preview')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('The exhibition is already a draft.')
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publish exhibition' })).toBeInTheDocument()
+    expect(screen.getByText('Draft preview')).toHaveFocus()
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Publish exhibition' }))
+    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Unpublish exhibition' }))
+    expect(screen.getByRole('alertdialog', { name: 'Unpublish this exhibition?' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it('moves to the exhibition-not-found state when a publication request reports a missing exhibition', async () => {
@@ -360,6 +544,31 @@ describe('curator exhibition preview', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
 
     expect(await screen.findByRole('heading', { name: 'Exhibition not found' })).toBeInTheDocument()
+  })
+
+  it('focuses the not-found heading when confirmed unpublish reports a missing exhibition', async () => {
+    const first = item(1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({
+        status: 'PUBLISHED',
+        publishedAt: '2026-07-22T14:30:00Z',
+        items: [first],
+        coverArtworkId: first.artwork.id,
+      })))
+      .mockResolvedValueOnce(respond(error('EXHIBITION_NOT_FOUND', 'No exhibition found.', 404), 404))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
+
+    const notFoundHeading = await screen.findByRole('heading', { name: 'Exhibition not found' })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(notFoundHeading).toHaveFocus()
+    expect(screen.queryByText('Exhibition unpublished. Curatorial editing is available again.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No exhibition found.')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(document.activeElement).not.toBe(document.body)
   })
 
   it('aborts a stale publication request when the preview route changes', async () => {
@@ -392,6 +601,47 @@ describe('curator exhibition preview', () => {
     })))
     expect(await screen.findByRole('heading', { name: 'Second preview' })).toBeInTheDocument()
     expect(screen.queryByText('Stale published exhibition')).not.toBeInTheDocument()
+  })
+
+  it('aborts a stale confirmed unpublish when the preview route changes', async () => {
+    const first = item(1)
+    let publicationSignal: AbortSignal | undefined
+    let resolvePublication: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1') {
+        return Promise.resolve(respond(detail({
+          status: 'PUBLISHED',
+          publishedAt: '2026-07-22T14:30:00Z',
+          items: [first],
+          coverArtworkId: first.artwork.id,
+        })))
+      }
+      if (path === '/api/exhibitions/1/unpublish') {
+        publicationSignal = options?.signal as AbortSignal
+        return new Promise<Response>((resolve) => { resolvePublication = resolve })
+      }
+      if (path === '/api/exhibitions/2') return Promise.resolve(respond(detail({ id: 2, title: 'Second preview' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
+    window.history.pushState({}, '', '/exhibitions/2/preview')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    await waitFor(() => expect(publicationSignal?.aborted).toBe(true))
+    resolvePublication?.(respond(detail({
+      title: 'Stale unpublished exhibition',
+      status: 'DRAFT',
+      publishedAt: null,
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    })))
+    expect(await screen.findByRole('heading', { name: 'Second preview' })).toBeInTheDocument()
+    expect(screen.queryByText('Stale unpublished exhibition')).not.toBeInTheDocument()
+    expect(document.activeElement).not.toBe(document.body)
   })
 
   it('aborts a stale preview request when the route changes', async () => {
@@ -436,5 +686,27 @@ describe('curator exhibition preview', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Draft preview')
     expect(screen.getByRole('list', { name: 'Publication requirements' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publish exhibition' })).toHaveAttribute('aria-describedby', 'publication-prerequisites')
+  })
+
+  it('does not describe unpublish controls with publication prerequisites', async () => {
+    const first = item(1)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-07-22T14:30:00Z',
+      items: [first],
+      coverArtworkId: first.artwork.id,
+    }))))
+    renderAt('/exhibitions/1/preview')
+
+    const unpublish = await screen.findByRole('button', { name: 'Unpublish exhibition' })
+    expect(unpublish).not.toHaveAttribute('aria-describedby')
+    await userEvent.click(unpublish)
+
+    const confirmation = screen.getByRole('alertdialog', { name: 'Unpublish this exhibition?' })
+    expect(confirmation).toHaveAttribute('aria-describedby', 'unpublish-confirmation-description')
+    expect(screen.getByRole('button', { name: 'Confirm unpublish' })).not.toHaveAttribute(
+      'aria-describedby',
+      'publication-prerequisites',
+    )
   })
 })

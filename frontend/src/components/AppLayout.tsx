@@ -17,7 +17,7 @@ export function AppLayout() {
           <NavLink to="/exhibitions">Curate</NavLink>
         </nav>
       </header>
-      <main id="main-content">
+      <main id="main-content" tabIndex={-1}>
         <Outlet />
       </main>
       <footer className="site-footer">

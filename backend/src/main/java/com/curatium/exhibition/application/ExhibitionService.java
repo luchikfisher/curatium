@@ -176,8 +176,8 @@ public class ExhibitionService {
         });
     }
 
-    public void removeExhibitionItem(long exhibitionId, long itemId) {
-        transactionTemplate.executeWithoutResult(status -> {
+    public ExhibitionDetailResponse removeExhibitionItem(long exhibitionId, long itemId) {
+        return transactionTemplate.execute(status -> {
             Exhibition exhibition = getRequiredLockedExhibition(exhibitionId);
             requireDraft(exhibition);
 
@@ -196,6 +196,11 @@ public class ExhibitionService {
                 );
                 exhibitionItemRepository.normalizePositionsAfterRemoval(exhibitionId, itemCount);
             }
+
+            exhibitionRepository.saveAndFlush(exhibition);
+            List<ExhibitionItem> committedItems = exhibitionItemRepository
+                    .findByExhibitionIdOrderByPositionAsc(exhibitionId);
+            return toDetailResponse(exhibition, committedItems);
         });
     }
 
@@ -340,8 +345,15 @@ public class ExhibitionService {
     }
 
     private ExhibitionDetailResponse toDetailResponse(Exhibition exhibition) {
+        return toDetailResponse(exhibition, exhibition.getItems());
+    }
+
+    private ExhibitionDetailResponse toDetailResponse(
+            Exhibition exhibition,
+            List<ExhibitionItem> items
+    ) {
         Long coverArtworkId = exhibition.getCoverArtwork() == null ? null : exhibition.getCoverArtwork().getId();
-        List<ExhibitionItemResponse> items = exhibition.getItems().stream()
+        List<ExhibitionItemResponse> itemResponses = items.stream()
                 .map(this::toItemResponse)
                 .toList();
         return new ExhibitionDetailResponse(
@@ -352,7 +364,7 @@ public class ExhibitionService {
                 exhibition.getStatus(),
                 exhibition.getPublishedAt(),
                 coverArtworkId,
-                items,
+                itemResponses,
                 exhibition.getCreatedAt(),
                 exhibition.getUpdatedAt()
         );

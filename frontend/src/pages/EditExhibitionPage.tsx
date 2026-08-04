@@ -3,10 +3,18 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import {
+  AuthoritativeReconciliationNotice,
+  type AuthoritativeReconciliationPhase,
+} from '../features/exhibitions/AuthoritativeReconciliationNotice'
+import {
   ExhibitionMetadataForm,
 } from '../features/exhibitions/ExhibitionMetadataForm'
 import { deleteDraftExhibition, getExhibition, updateExhibition } from '../features/exhibitions/api'
 import { applyMetadataRequestError } from '../features/exhibitions/formErrors'
+import {
+  DirtyNavigationConfirmation,
+} from '../features/exhibitions/DirtyNavigationGuard'
+import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import type { MetadataFieldErrors } from '../features/exhibitions/metadataValidation'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import type { ExhibitionMetadata } from '../features/exhibitions/types'
@@ -22,8 +30,9 @@ export function EditExhibitionPage() {
 
 function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const navigate = useNavigate()
-  const { data: exhibition, error: loadError, retry } = useExhibition(exhibitionId, getExhibition)
+  const { data: exhibition, error: loadError, retry, replace } = useExhibition(exhibitionId, getExhibition)
   const [metadata, setMetadata] = useState(emptyMetadata)
+  const [committedBaseline, setCommittedBaseline] = useState(emptyMetadata)
   const [loadedId, setLoadedId] = useState<number | null>(null)
   const [fieldErrors, setFieldErrors] = useState<MetadataFieldErrors>({})
   const [error, setError] = useState<FrontendError | Error | null>(null)
@@ -32,12 +41,27 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [reconciliationPhase, setReconciliationPhase] = useState<AuthoritativeReconciliationPhase>('idle')
   const requestController = useRef<AbortController | null>(null)
+  const reconciliationController = useRef<AbortController | null>(null)
+  const authoringRegionRef = useRef<HTMLElement | null>(null)
+  const reconciliationFocusOrigin = useRef<HTMLElement | null>(null)
   const deleteButtonRef = useRef<HTMLButtonElement | null>(null)
   const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null)
   const restoreDeleteFocus = useRef(false)
 
-  useEffect(() => () => requestController.current?.abort(), [])
+  const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  const serverMetadata = loadedExhibition ? metadataFromExhibition(loadedExhibition) : emptyMetadata
+  const formMetadata = loadedId === exhibitionId ? metadata : serverMetadata
+  const baselineMetadata = loadedId === exhibitionId ? committedBaseline : serverMetadata
+  const dirtyNavigation = useDirtyNavigation(
+    loadedExhibition !== null && !metadataMatches(formMetadata, baselineMetadata),
+  )
+
+  useEffect(() => () => {
+    requestController.current?.abort()
+    reconciliationController.current?.abort()
+  }, [])
   useEffect(() => {
     if (confirmingDelete) {
       confirmDeleteButtonRef.current?.focus()
@@ -57,29 +81,54 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
 
   const currentExhibition = exhibition
   const currentExhibitionId = exhibitionId
-  const formMetadata = loadedId === currentExhibition.id
-    ? metadata
-    : {
-        title: currentExhibition.title,
-        summary: currentExhibition.summary ?? '',
-        introduction: currentExhibition.introduction ?? '',
-      }
   const isReadOnly = readOnly || currentExhibition.status === 'PUBLISHED'
-  const busy = updating || deleting
+  const busy = updating || deleting || reconciliationPhase === 'loading'
 
   function change(field: keyof ExhibitionMetadata, value: string) {
     setLoadedId(currentExhibition.id)
+    if (loadedId !== currentExhibition.id) setCommittedBaseline(serverMetadata)
     setMetadata({ ...formMetadata, [field]: value })
     setFieldErrors((current) => ({ ...current, [field]: undefined }))
     setError(null)
     setSuccessMessage('')
   }
 
-  function handleReadOnlyError(reason: unknown): boolean {
+  async function reconcilePublishedConflict() {
+    const activeElement = document.activeElement
+    reconciliationFocusOrigin.current = activeElement instanceof HTMLElement
+      && authoringRegionRef.current?.contains(activeElement)
+      ? activeElement
+      : null
+    reconciliationController.current?.abort()
+    const controller = new AbortController()
+    reconciliationController.current = controller
+    setReconciliationPhase('loading')
+    setReadOnly(true)
+    setConfirmingDelete(false)
+    setError(null)
+    setFieldErrors({})
+    setSuccessMessage('')
+    try {
+      const committedExhibition = await getExhibition(currentExhibitionId, controller.signal)
+      if (controller.signal.aborted || reconciliationController.current !== controller) return
+      const committedMetadata = metadataFromExhibition(committedExhibition)
+      replace(committedExhibition)
+      setCommittedBaseline(committedMetadata)
+      setMetadata(committedMetadata)
+      setLoadedId(committedExhibition.id)
+      setReadOnly(committedExhibition.status === 'PUBLISHED')
+      setReconciliationPhase('reconciled')
+    } catch (reason) {
+      if (!controller.signal.aborted && reconciliationController.current === controller && !isAbortError(reason)) {
+        setReadOnly(true)
+        setReconciliationPhase('failed')
+      }
+    }
+  }
+
+  async function handleReadOnlyError(reason: unknown): Promise<boolean> {
     if (isFrontendError(reason) && reason.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
-      setReadOnly(true)
-      setConfirmingDelete(false)
-      setError(reason)
+      await reconcilePublishedConflict()
       return true
     }
     return false
@@ -96,17 +145,15 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     try {
       const updated = await updateExhibition(currentExhibitionId, formMetadata, controller.signal)
       if (!controller.signal.aborted) {
-        setMetadata({
-          title: updated.title,
-          summary: updated.summary ?? '',
-          introduction: updated.introduction ?? '',
-        })
+        const committedMetadata = metadataFromExhibition(updated)
+        setCommittedBaseline(committedMetadata)
+        setMetadata(committedMetadata)
         setLoadedId(updated.id)
         setReadOnly(updated.status === 'PUBLISHED')
         setSuccessMessage('Metadata saved.')
       }
     } catch (reason) {
-      if (!controller.signal.aborted && !handleReadOnlyError(reason)) {
+      if (!controller.signal.aborted && !(await handleReadOnlyError(reason))) {
         applyMetadataRequestError(reason, setFieldErrors, setError)
       }
     } finally {
@@ -122,9 +169,12 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     setError(null)
     try {
       await deleteDraftExhibition(currentExhibitionId, controller.signal)
-      if (!controller.signal.aborted) navigate('/exhibitions', { replace: true })
+      if (!controller.signal.aborted) {
+        dirtyNavigation.allowNextNavigation('/exhibitions')
+        navigate('/exhibitions', { replace: true })
+      }
     } catch (reason) {
-      if (!controller.signal.aborted && !handleReadOnlyError(reason)) {
+      if (!controller.signal.aborted && !(await handleReadOnlyError(reason))) {
         applyMetadataRequestError(reason, setFieldErrors, setError)
       }
     } finally {
@@ -148,8 +198,13 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
         <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/artworks`}>Curate artworks</Link>
         <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/preview`}>Preview exhibition</Link>
       </nav>
-      <section className="editor-section" aria-labelledby="metadata-heading">
+      <section ref={authoringRegionRef} className="editor-section" aria-labelledby="metadata-heading">
         <h2 id="metadata-heading">Exhibition metadata</h2>
+        <AuthoritativeReconciliationNotice
+          phase={reconciliationPhase}
+          onRetry={reconcilePublishedConflict}
+          initialFocusOriginRef={reconciliationFocusOrigin}
+        />
         {isReadOnly && (
           <p className="form-alert" role="status">
             This exhibition is published and read-only. Unpublish it before changing metadata or deleting it.
@@ -189,8 +244,31 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
           )}
         </section>
       )}
+      <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
   )
+}
+
+function metadataFromExhibition(exhibition: {
+  title: string
+  summary?: string | null
+  introduction?: string | null
+}): ExhibitionMetadata {
+  return {
+    title: exhibition.title,
+    summary: exhibition.summary ?? '',
+    introduction: exhibition.introduction ?? '',
+  }
+}
+
+function metadataMatches(draft: ExhibitionMetadata, baseline: ExhibitionMetadata): boolean {
+  return draft.title === baseline.title
+    && (draft.summary ?? '') === (baseline.summary ?? '')
+    && (draft.introduction ?? '') === (baseline.introduction ?? '')
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof DOMException && reason.name === 'AbortError'
 }
 
 function parseExhibitionId(id: string | undefined): number | null {

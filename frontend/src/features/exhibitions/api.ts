@@ -498,8 +498,8 @@ export async function removeExhibitionItem(
   exhibitionId: number,
   itemId: number,
   signal?: AbortSignal,
-): Promise<void> {
-  await apiRequest(
+): Promise<ExhibitionDetail> {
+  return requestDetail(
     `/api/exhibitions/${exhibitionId}/items/${itemId}`,
     { method: 'DELETE', signal },
   )

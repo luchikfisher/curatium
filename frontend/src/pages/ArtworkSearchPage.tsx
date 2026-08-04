@@ -4,6 +4,14 @@ import { isFrontendError, type FrontendError } from '../api/errors'
 import { EmptyState, LoadingState } from '../components/AsyncState'
 import { ArtworkImage } from '../components/ArtworkImage'
 import {
+  AuthoritativeReconciliationNotice,
+  type AuthoritativeReconciliationPhase,
+} from '../features/exhibitions/AuthoritativeReconciliationNotice'
+import {
+  DirtyNavigationConfirmation,
+} from '../features/exhibitions/DirtyNavigationGuard'
+import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
+import {
   addExhibitionArtwork,
   clearExhibitionCover,
   getExhibition,
@@ -35,6 +43,11 @@ interface ItemMutation {
   kind: ItemMutationKind
 }
 
+interface NoteDraft {
+  baseline: string
+  value: string
+}
+
 export function ArtworkSearchPage() {
   const { id } = useParams()
   const exhibitionId = parseExhibitionId(id)
@@ -55,7 +68,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [readOnly, setReadOnly] = useState(false)
   const [capacityReached, setCapacityReached] = useState(false)
   const [duplicateArtworkKeys, setDuplicateArtworkKeys] = useState<Set<string>>(() => new Set())
-  const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
+  const [noteDrafts, setNoteDrafts] = useState<Record<number, NoteDraft>>({})
   const [noteErrors, setNoteErrors] = useState<Record<number, string | undefined>>({})
   const [itemError, setItemError] = useState('')
   const [itemSuccess, setItemSuccess] = useState('')
@@ -65,21 +78,29 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [coverSuccess, setCoverSuccess] = useState('')
   const [removingItemId, setRemovingItemId] = useState<number | null>(null)
   const [exhibitionNotFound, setExhibitionNotFound] = useState(false)
+  const [reconciliationPhase, setReconciliationPhase] = useState<AuthoritativeReconciliationPhase>('idle')
   const searchController = useRef<AbortController | null>(null)
   const addController = useRef<AbortController | null>(null)
   const itemMutationController = useRef<AbortController | null>(null)
   const coverMutationController = useRef<AbortController | null>(null)
+  const reconciliationController = useRef<AbortController | null>(null)
+  const authoringRegionRef = useRef<HTMLElement | null>(null)
+  const reconciliationFocusOrigin = useRef<HTMLElement | null>(null)
   const searchRequest = useRef(0)
   const lastSearch = useRef<{ query: string; page: number } | null>(null)
   const confirmRemovalButtonRef = useRef<HTMLButtonElement | null>(null)
   const removeButtonRefs = useRef(new Map<number, HTMLButtonElement>())
   const restoreRemovalFocus = useRef<number | null>(null)
+  const dirtyNavigation = useDirtyNavigation(
+    Object.values(noteDrafts).some((draft) => draft.value !== draft.baseline),
+  )
 
   useEffect(() => () => {
     searchController.current?.abort()
     addController.current?.abort()
     itemMutationController.current?.abort()
     coverMutationController.current?.abort()
+    reconciliationController.current?.abort()
   }, [])
   useEffect(() => {
     if (removingItemId !== null) {
@@ -111,6 +132,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   const currentExhibition = exhibition
   const isReadOnly = readOnly || currentExhibition.status === 'PUBLISHED'
+  const authoringLocked = isReadOnly || reconciliationPhase === 'loading' || reconciliationPhase === 'failed'
   const atCapacity = capacityReached || currentExhibition.items.length >= 10
   const itemMutationInProgress = itemMutation !== null
   const coverMutationInProgress = coverMutation !== null
@@ -118,6 +140,59 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const coverItem = currentExhibition.coverArtworkId === null
     ? null
     : currentExhibition.items.find((item) => item.artwork.id === currentExhibition.coverArtworkId) ?? null
+
+  function replaceExhibition(nextExhibition: ExhibitionDetail) {
+    const retainedItemIds = new Set(nextExhibition.items.map((item) => item.id))
+    setNoteDrafts((current) => {
+      const retained = Object.fromEntries(
+        Object.entries(current).filter(([itemId]) => retainedItemIds.has(Number(itemId))),
+      )
+      return Object.keys(retained).length === Object.keys(current).length ? current : retained
+    })
+    replace(nextExhibition)
+  }
+
+  function replaceAuthoritativeExhibition(nextExhibition: ExhibitionDetail) {
+    replace(nextExhibition)
+    setNoteDrafts({})
+    setNoteErrors({})
+    setCapacityReached(nextExhibition.items.length >= 10)
+    setDuplicateArtworkKeys(new Set())
+    setAddingExternalId(null)
+    setAddError('')
+    setItemError('')
+    setItemSuccess('')
+    setCoverError('')
+    setCoverSuccess('')
+    setRemovingItemId(null)
+    restoreRemovalFocus.current = null
+  }
+
+  async function reconcilePublishedConflict() {
+    const activeElement = document.activeElement
+    reconciliationFocusOrigin.current = activeElement instanceof HTMLElement
+      && authoringRegionRef.current?.contains(activeElement)
+      ? activeElement
+      : null
+    reconciliationController.current?.abort()
+    const controller = new AbortController()
+    reconciliationController.current = controller
+    setReconciliationPhase('loading')
+    setReadOnly(true)
+    setRemovingItemId(null)
+    try {
+      const committedExhibition = await getExhibition(currentExhibition.id, controller.signal)
+      if (controller.signal.aborted || reconciliationController.current !== controller) return
+      replaceAuthoritativeExhibition(committedExhibition)
+      setReadOnly(committedExhibition.status === 'PUBLISHED')
+      setReconciliationPhase('reconciled')
+    } catch (reason) {
+      if (!controller.signal.aborted && reconciliationController.current === controller && !isAbortError(reason)) {
+        setReadOnly(true)
+        setReconciliationPhase('failed')
+      }
+    }
+  }
 
   function changeQuery(value: string) {
     setQuery(value)
@@ -179,7 +254,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   async function addArtwork(artwork: MuseumArtworkSearchResult) {
     const key = artworkKey(artwork)
-    if (isReadOnly || atCapacity || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null || committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)) {
+    if (authoringLocked || atCapacity || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null || committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)) {
       return
     }
     const controller = new AbortController()
@@ -189,7 +264,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     try {
       const addedItem = await addExhibitionArtwork(currentExhibition.id, artwork, controller.signal)
       if (isCurrentAddRequest(controller)) {
-        replace(withAddedItem(currentExhibition, addedItem))
+        replaceExhibition(withAddedItem(currentExhibition, addedItem))
       }
     } catch (reason) {
       if (isCurrentAddRequest(controller)) {
@@ -226,7 +301,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
             controller.signal,
           )
           if (isCurrentAddRequest(controller)) {
-            replace(refreshedExhibition)
+            replaceExhibition(refreshedExhibition)
             setCapacityReached(refreshedExhibition.items.length >= 10)
           }
         } catch (refreshReason) {
@@ -239,7 +314,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         return
       }
       if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
-        setReadOnly(true)
+        await reconcilePublishedConflict()
         return
       }
       if (error.code === 'MUSEUM_SERVICE_UNAVAILABLE') {
@@ -257,7 +332,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   function beginCoverMutation(mutation: CoverMutation): AbortController | null {
-    if (isReadOnly || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null) return null
+    if (authoringLocked || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null) return null
     const controller = new AbortController()
     coverMutationController.current = controller
     setCoverMutation(mutation)
@@ -270,11 +345,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     return !controller.signal.aborted && coverMutationController.current === controller
   }
 
-  function handleCoverMutationError(reason: unknown) {
+  async function handleCoverMutationError(reason: unknown) {
     const error = reason instanceof Error ? reason : new Error('Unknown error')
     if (isFrontendError(error)) {
       if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
-        setReadOnly(true)
+        await reconcilePublishedConflict()
         return
       }
       if (error.code === 'EXHIBITION_NOT_FOUND') {
@@ -301,11 +376,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         controller.signal,
       )
       if (isCurrentCoverMutation(controller)) {
-        replace(updatedExhibition)
+        replaceExhibition(updatedExhibition)
         setCoverSuccess('Cover updated.')
       }
     } catch (reason) {
-      if (isCurrentCoverMutation(controller)) handleCoverMutationError(reason)
+      if (isCurrentCoverMutation(controller)) await handleCoverMutationError(reason)
     } finally {
       if (isCurrentCoverMutation(controller)) setCoverMutation(null)
     }
@@ -320,29 +395,39 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         controller.signal,
       )
       if (isCurrentCoverMutation(controller)) {
-        replace(updatedExhibition)
+        replaceExhibition(updatedExhibition)
         setCoverSuccess('Cover cleared.')
       }
     } catch (reason) {
-      if (isCurrentCoverMutation(controller)) handleCoverMutationError(reason)
+      if (isCurrentCoverMutation(controller)) await handleCoverMutationError(reason)
     } finally {
       if (isCurrentCoverMutation(controller)) setCoverMutation(null)
     }
   }
 
   function noteValue(item: ExhibitionItem): string {
-    return noteDrafts[item.id] ?? item.curatorialNote ?? ''
+    return noteDrafts[item.id]?.value ?? item.curatorialNote ?? ''
   }
 
   function changeNote(itemId: number, value: string) {
-    setNoteDrafts((current) => ({ ...current, [itemId]: value }))
+    const item = currentExhibition.items.find((candidate) => candidate.id === itemId)
+    if (!item) return
+    setNoteDrafts((current) => {
+      const baseline = current[itemId]?.baseline ?? item.curatorialNote ?? ''
+      if (value === baseline) {
+        const remaining = { ...current }
+        delete remaining[itemId]
+        return remaining
+      }
+      return { ...current, [itemId]: { baseline, value } }
+    })
     setNoteErrors((current) => ({ ...current, [itemId]: undefined }))
     setItemError('')
     setItemSuccess('')
   }
 
   function beginItemMutation(itemId: number, kind: ItemMutationKind): AbortController | null {
-    if (isReadOnly || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return null
+    if (authoringLocked || itemMutationController.current !== null || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return null
     const controller = new AbortController()
     itemMutationController.current = controller
     setItemMutation({ itemId, kind })
@@ -368,12 +453,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     })
   }
 
-  function handleItemMutationError(reason: unknown, itemId: number) {
+  async function handleItemMutationError(reason: unknown, itemId: number) {
     const error = reason instanceof Error ? reason : new Error('Unknown error')
     if (isFrontendError(error)) {
       if (error.code === 'PUBLISHED_EXHIBITION_READ_ONLY') {
-        setReadOnly(true)
-        setRemovingItemId(null)
+        await reconcilePublishedConflict()
         return
       }
       const noteFieldError = error.fieldErrors.find((fieldError) => fieldError.field === 'curatorialNote')
@@ -415,14 +499,17 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         controller.signal,
       )
       if (isCurrentItemMutation(controller)) {
-        replace(withReplacedItem(currentExhibition, updatedItem))
+        replaceExhibition(withReplacedItem(currentExhibition, updatedItem))
         clearNoteDraft(item.id)
         setItemSuccess(value.trim() ? 'Curatorial note saved.' : 'Curatorial note cleared.')
       }
     } catch (reason) {
-      if (isCurrentItemMutation(controller)) handleItemMutationError(reason, item.id)
+      if (isCurrentItemMutation(controller)) await handleItemMutationError(reason, item.id)
     } finally {
-      if (isCurrentItemMutation(controller)) setItemMutation(null)
+      if (isCurrentItemMutation(controller)) {
+        itemMutationController.current = null
+        setItemMutation(null)
+      }
     }
   }
 
@@ -437,18 +524,21 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         controller.signal,
       )
       if (isCurrentItemMutation(controller)) {
-        replace(withItems(currentExhibition, orderedItems))
+        replaceExhibition(withItems(currentExhibition, orderedItems))
         setItemSuccess(`Artwork moved ${direction}.`)
       }
     } catch (reason) {
-      if (isCurrentItemMutation(controller)) handleItemMutationError(reason, item.id)
+      if (isCurrentItemMutation(controller)) await handleItemMutationError(reason, item.id)
     } finally {
-      if (isCurrentItemMutation(controller)) setItemMutation(null)
+      if (isCurrentItemMutation(controller)) {
+        itemMutationController.current = null
+        setItemMutation(null)
+      }
     }
   }
 
   function requestRemoval(itemId: number) {
-    if (isReadOnly || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return
+    if (authoringLocked || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return
     setItemError('')
     setItemSuccess('')
     setRemovingItemId(itemId)
@@ -462,40 +552,32 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   async function removeItem(item: ExhibitionItem) {
     const controller = beginItemMutation(item.id, 'remove')
     if (!controller) return
-    let removalCommitted = false
     try {
-      await removeExhibitionItem(currentExhibition.id, item.id, controller.signal)
-      removalCommitted = true
-      const refreshedExhibition = await getExhibition(currentExhibition.id, controller.signal)
+      const committedExhibition = await removeExhibitionItem(currentExhibition.id, item.id, controller.signal)
       if (isCurrentItemMutation(controller)) {
-        replace(refreshedExhibition)
-        setCapacityReached(refreshedExhibition.items.length >= 10)
+        replaceExhibition(committedExhibition)
+        setCapacityReached(committedExhibition.items.length >= 10)
         setDuplicateArtworkKeys(new Set())
         setAddError('')
         clearNoteDraft(item.id)
+        removeButtonRefs.current.delete(item.id)
+        restoreRemovalFocus.current = null
         setRemovingItemId(null)
+        setItemError('')
         setItemSuccess('Artwork removed.')
       }
     } catch (reason) {
-      if (isCurrentItemMutation(controller)) {
-        if (removalCommitted) {
-          if (isFrontendError(reason) && reason.code === 'EXHIBITION_NOT_FOUND') {
-            handleItemMutationError(reason, item.id)
-          } else {
-            setRemovingItemId(null)
-            setItemError('The artwork was removed, but the artwork list could not be refreshed and may be stale.')
-          }
-        } else {
-          handleItemMutationError(reason, item.id)
-        }
-      }
+      if (isCurrentItemMutation(controller)) await handleItemMutationError(reason, item.id)
     } finally {
-      if (isCurrentItemMutation(controller)) setItemMutation(null)
+      if (isCurrentItemMutation(controller)) {
+        itemMutationController.current = null
+        setItemMutation(null)
+      }
     }
   }
 
   return (
-    <section className="artwork-search-page">
+    <section ref={authoringRegionRef} className="artwork-search-page">
       <div className="page-heading editor-heading">
         <p className="eyebrow">Museum collection</p>
         <h1>Add artworks</h1>
@@ -505,6 +587,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/edit`}>Back to exhibition</Link>
         <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/preview`}>Preview exhibition</Link>
       </nav>
+      <AuthoritativeReconciliationNotice
+        phase={reconciliationPhase}
+        onRetry={reconcilePublishedConflict}
+        initialFocusOriginRef={reconciliationFocusOrigin}
+      />
       <section className="artwork-search-section cover-selection" aria-labelledby="cover-heading">
         <h2 id="cover-heading">Cover artwork</h2>
         {coverItem ? (
@@ -521,7 +608,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                 aria-label={`Clear cover, artwork ${coverItem.position} of ${currentExhibition.items.length}, ${coverItem.artwork.title}`}
                 className="button button-secondary"
                 type="button"
-                disabled={isReadOnly || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null}
+                disabled={authoringLocked || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null}
                 onClick={clearCover}
               >
                 {coverMutation?.kind === 'clear' ? 'Clearing…' : 'Clear cover'}
@@ -550,7 +637,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                 itemCount={currentExhibition.items.length}
                 note={noteValue(item)}
                 noteError={noteErrors[item.id]}
-                isReadOnly={isReadOnly}
+                isReadOnly={authoringLocked}
                 isBusy={itemMutationInProgress}
                 coverMutation={coverMutation}
                 hasCurrentCover={coverItem !== null}
@@ -605,7 +692,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           searching={searching}
           onPageChange={startSearch}
           onAdd={addArtwork}
-          isReadOnly={isReadOnly}
+          isReadOnly={authoringLocked}
           atCapacity={atCapacity}
           addingExternalId={addingExternalId}
           itemMutationInProgress={itemMutationInProgress}
@@ -616,6 +703,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           }}
         />
       </section>
+      <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
   )
 }
