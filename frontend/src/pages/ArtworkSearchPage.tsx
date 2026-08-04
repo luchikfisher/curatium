@@ -160,6 +160,18 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   function replaceAuthoritativeExhibition(nextExhibition: ExhibitionDetail) {
+    if (nextExhibition.status === 'PUBLISHED') {
+      searchController.current?.abort()
+      searchController.current = null
+      searchRequest.current += 1
+      lastSearch.current = null
+      setQuery('')
+      setQueryError('')
+      setResults(null)
+      setActiveQuery('')
+      setSearchError(null)
+      setSearching(false)
+    }
     replace(nextExhibition)
     setNoteDrafts({})
     setNoteErrors({})
@@ -583,6 +595,25 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     }
   }
 
+  if (currentExhibition.status === 'PUBLISHED') {
+    return (
+      <section ref={authoringRegionRef} className="artwork-search-page artwork-review-page">
+        <div className="page-heading editor-heading">
+          <p className="eyebrow">Curator workspace</p>
+          <h1>Review published artworks</h1>
+          <p className="lede">Review the committed artwork sequence for {currentExhibition.title}.</p>
+        </div>
+        <CuratorExhibitionContext exhibition={currentExhibition} activeStep="artworks" />
+        <AuthoritativeReconciliationNotice
+          phase={reconciliationPhase}
+          onRetry={reconcilePublishedConflict}
+          initialFocusOriginRef={reconciliationFocusOrigin}
+        />
+        <PublishedArtworkReview exhibition={currentExhibition} />
+      </section>
+    )
+  }
+
   return (
     <section ref={authoringRegionRef} className="artwork-search-page">
       <div className="page-heading editor-heading">
@@ -717,6 +748,92 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       </section>
       <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
+  )
+}
+
+function PublishedArtworkReview({
+  exhibition,
+}: {
+  exhibition: ExhibitionDetail
+}) {
+  const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
+
+  return (
+    <section className="artwork-search-section published-artwork-review" aria-labelledby="published-artwork-review-heading">
+      <h2 id="published-artwork-review-heading">Published artworks ({orderedItems.length})</h2>
+      <p className="section-copy">
+        This exhibition is published and read-only. Return to the preview and unpublish it before editing its artworks.
+      </p>
+      <Link className="button button-secondary published-artwork-review__return" to={`/exhibitions/${exhibition.id}/preview`}>
+        Return to preview to unpublish
+      </Link>
+      {orderedItems.length === 0 ? (
+        <p className="section-copy published-artwork-review__empty">No artworks are present in the committed exhibition.</p>
+      ) : (
+        <ol className="published-artwork-list" aria-label="Published exhibition artworks">
+          {orderedItems.map((item) => (
+            <PublishedArtworkSummary
+              key={item.id}
+              item={item}
+              itemCount={orderedItems.length}
+              isCover={item.artwork.id === exhibition.coverArtworkId}
+            />
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
+function PublishedArtworkSummary({
+  item,
+  itemCount,
+  isCover,
+}: {
+  item: ExhibitionItem
+  itemCount: number
+  isCover: boolean
+}) {
+  const note = item.curatorialNote?.trim() ?? ''
+  const sourceLabel = item.artwork.source === 'CLEVELAND_MUSEUM_OF_ART'
+    ? 'Cleveland Museum of Art'
+    : 'Art Institute of Chicago'
+
+  return (
+    <li className="published-artwork-summary">
+      <article aria-labelledby={`published-artwork-${item.id}-title`}>
+        <div className="published-artwork-summary__heading">
+          <ArtworkImage
+            src={item.artwork.thumbnailUrl}
+            alt={`Thumbnail of ${item.artwork.title}`}
+            className="published-artwork-summary__image"
+          />
+          <div>
+            <p className="current-artwork-item__position">Artwork {item.position} of {itemCount}</p>
+            <h3 id={`published-artwork-${item.id}-title`}>{item.artwork.title}</h3>
+            <p>{item.artwork.artistDisplay || 'Artist unknown'}</p>
+            {isCover && <p className="published-artwork-summary__cover">Current cover artwork</p>}
+          </div>
+        </div>
+        <dl className="published-artwork-summary__metadata">
+          {item.artwork.dateDisplay && <div><dt>Date</dt><dd>{item.artwork.dateDisplay}</dd></div>}
+          <div><dt>Source</dt><dd>{sourceLabel}</dd></div>
+          <div><dt>Accession or record</dt><dd>{item.artwork.externalId}</dd></div>
+          {item.artwork.creditLine && <div><dt>Credit line</dt><dd>{item.artwork.creditLine}</dd></div>}
+        </dl>
+        {note && (
+          <section className="published-artwork-summary__note" aria-labelledby={`published-artwork-${item.id}-note`}>
+            <h4 id={`published-artwork-${item.id}-note`}>Curatorial note</h4>
+            <p>{item.curatorialNote}</p>
+          </section>
+        )}
+        {item.artwork.sourceUrl && (
+          <a className="text-link published-artwork-summary__source" href={item.artwork.sourceUrl} target="_blank" rel="noreferrer">
+            View artwork source
+          </a>
+        )}
+      </article>
+    </li>
   )
 }
 
