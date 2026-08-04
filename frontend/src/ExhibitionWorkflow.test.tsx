@@ -1,7 +1,8 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { appRouter } from './router'
 
 function detail(overrides: Record<string, unknown> = {}) {
   return {
@@ -74,6 +75,7 @@ describe('exhibition create and edit workflow', () => {
 
     expect(await screen.findByDisplayValue('Night works')).toBeInTheDocument()
     expect(window.location.pathname).toBe('/exhibitions/42/edit')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/exhibitions', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ title: 'Night works', summary: '', introduction: '' }),
@@ -124,6 +126,22 @@ describe('exhibition create and edit workflow', () => {
     expect(await screen.findByText('Please try again shortly.')).toBeInTheDocument()
     expect(screen.getByLabelText(/title/i)).toHaveValue('Saved locally')
     expect(screen.getByLabelText(/summary/i)).toHaveValue('Keep this text')
+    await userEvent.click(screen.getByRole('link', { name: 'Cancel' }))
+    expect(screen.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
+  })
+
+  it('blocks dirty creation cancellation and Stay preserves the draft', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+    renderAt('/exhibitions/new')
+    const title = screen.getByLabelText(/title/i)
+    await userEvent.type(title, '  New draft  ')
+
+    await userEvent.click(screen.getByRole('link', { name: 'Cancel' }))
+
+    expect(screen.getByRole('button', { name: 'Stay' })).toHaveFocus()
+    await userEvent.click(screen.getByRole('button', { name: 'Stay' }))
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Cancel' })).toHaveFocus())
+    expect(title).toHaveValue('  New draft  ')
   })
 
   it('prevents duplicate creation submissions while the request is pending', async () => {
@@ -173,6 +191,195 @@ describe('exhibition create and edit workflow', () => {
         introduction: 'An introductory text.',
       }),
     }))
+  })
+
+  it('allows clean metadata navigation and protects a dirty Link until it is discarded', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.click(screen.getByRole('link', { name: 'Curate artworks' }))
+    expect(await screen.findByRole('heading', { name: 'Add artworks' })).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+
+    await act(async () => { await appRouter.navigate('/exhibitions/1/edit') })
+    const reloadedTitle = await screen.findByLabelText(/title/i)
+    await userEvent.clear(reloadedTitle)
+    await userEvent.type(reloadedTitle, '  Exact dirty title  ')
+    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/edit')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/preview')
+    expect(title).not.toBeInTheDocument()
+  })
+
+  it('successful metadata save becomes clean while a failed save remains protected', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(detail({ title: 'Committed update' })))
+      .mockResolvedValueOnce(respond(detail({ title: 'Committed update' })))
+      .mockResolvedValueOnce(respond(detail({ title: 'Committed update' })))
+      .mockResolvedValueOnce(respond(error('SERVICE_UNAVAILABLE', 'Please try again.', 503), 503))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Client update')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await screen.findByText('Metadata saved.')
+    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+
+    await act(async () => { await appRouter.navigate('/exhibitions/1/edit') })
+    const titleAfterReturn = await screen.findByLabelText(/title/i)
+    await userEvent.clear(titleAfterReturn)
+    await userEvent.type(titleAfterReturn, 'Failed update')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await screen.findByText('Please try again.')
+    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(titleAfterReturn).toHaveValue('Failed update')
+  })
+
+  it('continues the original blocked navigation when a pending metadata save succeeds', async () => {
+    let resolveSave: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1' && options?.method === 'PUT') {
+        return new Promise<Response>((resolve) => { resolveSave = resolve })
+      }
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ title: 'Saved title' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Pending title')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await waitFor(() => expect(resolveSave).toBeDefined())
+    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+
+    await act(async () => { resolveSave?.(respond(detail({ title: 'Saved title' }))) })
+
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/preview')
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('main')).toHaveFocus())
+  })
+
+  it('keeps the original metadata confirmation when a pending save fails', async () => {
+    let resolveSave: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1' && options?.method === 'PUT') {
+        return new Promise<Response>((resolve) => { resolveSave = resolve })
+      }
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Still unsaved')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await waitFor(() => expect(resolveSave).toBeDefined())
+    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+
+    await act(async () => { resolveSave?.(respond(error('SERVICE_UNAVAILABLE', 'Please try again.', 503), 503)) })
+
+    expect(await screen.findByText('Please try again.')).toBeInTheDocument()
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(title).toHaveValue('Still unsaved')
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('does not continue a blocked metadata navigation after Stay, even if the save later succeeds', async () => {
+    let resolveSave: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1' && options?.method === 'PUT') {
+        return new Promise<Response>((resolve) => { resolveSave = resolve })
+      }
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ title: 'Saved title' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Pending title')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await waitFor(() => expect(resolveSave).toBeDefined())
+    const preview = screen.getByRole('link', { name: 'Preview exhibition' })
+    await userEvent.click(preview)
+    await userEvent.click(screen.getByRole('button', { name: 'Stay' }))
+    await waitFor(() => expect(preview).toHaveFocus())
+
+    await act(async () => { resolveSave?.(respond(detail({ title: 'Saved title' }))) })
+
+    expect(await screen.findByText('Metadata saved.')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/edit')
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('aborts a pending metadata save after Discard and keeps the destination stable', async () => {
+    let saveSignal: AbortSignal | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1' && options?.method === 'PUT') {
+        saveSignal = options.signal as AbortSignal
+        return new Promise<Response>((_, reject) => {
+          saveSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        })
+      }
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Pending title')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+
+    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    await waitFor(() => expect(saveSignal?.aborted).toBe(true))
+    expect(window.location.pathname).toBe('/exhibitions/1/preview')
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('blocks a dirty route-parameter switch between exhibitions', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail({ id: 1, title: 'First exhibition' })))
+      if (path === '/api/exhibitions/2') return Promise.resolve(respond(detail({ id: 2, title: 'Second exhibition' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.type(title, ' changed')
+
+    const routeChange = appRouter.navigate('/exhibitions/2/edit')
+
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/edit')
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await routeChange
+    expect(await screen.findByDisplayValue('Second exhibition')).toBeInTheDocument()
   })
 
   it('handles a published read-only response explicitly', async () => {
@@ -295,7 +502,7 @@ describe('exhibition create and edit workflow', () => {
     expect(screen.queryByRole('button', { name: 'Delete exhibition' })).not.toBeInTheDocument()
   })
 
-  it('aborts an old mutation and resets editor state when the route ID changes', async () => {
+  it('confirms once, then aborts an old mutation and ignores its stale callback after discard', async () => {
     let putSignal: AbortSignal | undefined
     let resolveUpdate: ((response: Response) => void) | undefined
     const fetchMock = vi.fn((path: string, options?: RequestInit) => {
@@ -316,8 +523,13 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.clear(title)
     await userEvent.type(title, 'Changed first exhibition')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
-    window.history.pushState({}, '', '/exhibitions/2/edit')
-    window.dispatchEvent(new PopStateEvent('popstate'))
+    const routeChange = appRouter.navigate('/exhibitions/2/edit')
+
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    expect(screen.getAllByRole('alertdialog')).toHaveLength(1)
+    expect(putSignal?.aborted).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await routeChange
 
     expect(await screen.findByDisplayValue('Second exhibition')).toBeInTheDocument()
     expect(putSignal?.aborted).toBe(true)

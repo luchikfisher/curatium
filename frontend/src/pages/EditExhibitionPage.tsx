@@ -7,6 +7,10 @@ import {
 } from '../features/exhibitions/ExhibitionMetadataForm'
 import { deleteDraftExhibition, getExhibition, updateExhibition } from '../features/exhibitions/api'
 import { applyMetadataRequestError } from '../features/exhibitions/formErrors'
+import {
+  DirtyNavigationConfirmation,
+} from '../features/exhibitions/DirtyNavigationGuard'
+import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import type { MetadataFieldErrors } from '../features/exhibitions/metadataValidation'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import type { ExhibitionMetadata } from '../features/exhibitions/types'
@@ -24,6 +28,7 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const navigate = useNavigate()
   const { data: exhibition, error: loadError, retry } = useExhibition(exhibitionId, getExhibition)
   const [metadata, setMetadata] = useState(emptyMetadata)
+  const [committedBaseline, setCommittedBaseline] = useState(emptyMetadata)
   const [loadedId, setLoadedId] = useState<number | null>(null)
   const [fieldErrors, setFieldErrors] = useState<MetadataFieldErrors>({})
   const [error, setError] = useState<FrontendError | Error | null>(null)
@@ -36,6 +41,14 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const deleteButtonRef = useRef<HTMLButtonElement | null>(null)
   const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null)
   const restoreDeleteFocus = useRef(false)
+
+  const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  const serverMetadata = loadedExhibition ? metadataFromExhibition(loadedExhibition) : emptyMetadata
+  const formMetadata = loadedId === exhibitionId ? metadata : serverMetadata
+  const baselineMetadata = loadedId === exhibitionId ? committedBaseline : serverMetadata
+  const dirtyNavigation = useDirtyNavigation(
+    loadedExhibition !== null && !metadataMatches(formMetadata, baselineMetadata),
+  )
 
   useEffect(() => () => requestController.current?.abort(), [])
   useEffect(() => {
@@ -57,18 +70,12 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
 
   const currentExhibition = exhibition
   const currentExhibitionId = exhibitionId
-  const formMetadata = loadedId === currentExhibition.id
-    ? metadata
-    : {
-        title: currentExhibition.title,
-        summary: currentExhibition.summary ?? '',
-        introduction: currentExhibition.introduction ?? '',
-      }
   const isReadOnly = readOnly || currentExhibition.status === 'PUBLISHED'
   const busy = updating || deleting
 
   function change(field: keyof ExhibitionMetadata, value: string) {
     setLoadedId(currentExhibition.id)
+    if (loadedId !== currentExhibition.id) setCommittedBaseline(serverMetadata)
     setMetadata({ ...formMetadata, [field]: value })
     setFieldErrors((current) => ({ ...current, [field]: undefined }))
     setError(null)
@@ -96,11 +103,9 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     try {
       const updated = await updateExhibition(currentExhibitionId, formMetadata, controller.signal)
       if (!controller.signal.aborted) {
-        setMetadata({
-          title: updated.title,
-          summary: updated.summary ?? '',
-          introduction: updated.introduction ?? '',
-        })
+        const committedMetadata = metadataFromExhibition(updated)
+        setCommittedBaseline(committedMetadata)
+        setMetadata(committedMetadata)
         setLoadedId(updated.id)
         setReadOnly(updated.status === 'PUBLISHED')
         setSuccessMessage('Metadata saved.')
@@ -122,7 +127,10 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     setError(null)
     try {
       await deleteDraftExhibition(currentExhibitionId, controller.signal)
-      if (!controller.signal.aborted) navigate('/exhibitions', { replace: true })
+      if (!controller.signal.aborted) {
+        dirtyNavigation.allowNextNavigation('/exhibitions')
+        navigate('/exhibitions', { replace: true })
+      }
     } catch (reason) {
       if (!controller.signal.aborted && !handleReadOnlyError(reason)) {
         applyMetadataRequestError(reason, setFieldErrors, setError)
@@ -189,8 +197,27 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
           )}
         </section>
       )}
+      <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
   )
+}
+
+function metadataFromExhibition(exhibition: {
+  title: string
+  summary?: string | null
+  introduction?: string | null
+}): ExhibitionMetadata {
+  return {
+    title: exhibition.title,
+    summary: exhibition.summary ?? '',
+    introduction: exhibition.introduction ?? '',
+  }
+}
+
+function metadataMatches(draft: ExhibitionMetadata, baseline: ExhibitionMetadata): boolean {
+  return draft.title === baseline.title
+    && (draft.summary ?? '') === (baseline.summary ?? '')
+    && (draft.introduction ?? '') === (baseline.introduction ?? '')
 }
 
 function parseExhibitionId(id: string | undefined): number | null {
