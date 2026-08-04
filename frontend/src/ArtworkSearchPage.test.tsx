@@ -359,7 +359,7 @@ describe('museum artwork search and add flow', () => {
     const reconciliationStatus = await screen.findByText(/attempted change was not saved because this exhibition is now published/i)
     expect(reconciliationStatus).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
-    expect(screen.getByText(/Published authority/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Published authority')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Committed published artwork' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add artwork' })).toBeDisabled()
@@ -406,7 +406,10 @@ describe('museum artwork search and add flow', () => {
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
     await waitFor(() => expect(firstSignal?.aborted).toBe(true))
-    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+    const context = await screen.findByRole('region', { name: 'Current exhibition' })
+    expect(within(context).getByText('Second exhibition')).toBeInTheDocument()
+    expect(within(context).queryByText('Lines of Light')).not.toBeInTheDocument()
+    expect(within(context).getByRole('link', { name: 'Artworks' })).toHaveAttribute('aria-current', 'page')
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
   })
 
@@ -438,7 +441,7 @@ describe('museum artwork search and add flow', () => {
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
     await waitFor(() => expect(addSignal?.aborted).toBe(true))
-    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Second exhibition')).toBeInTheDocument()
     expect(screen.queryByText(/problem occurred while adding/)).not.toBeInTheDocument()
   })
 
@@ -475,7 +478,7 @@ describe('museum artwork search and add flow', () => {
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
     await waitFor(() => expect(refreshSignal?.aborted).toBe(true))
-    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Second exhibition')).toBeInTheDocument()
     expect(screen.queryByText('Lines of Light')).not.toBeInTheDocument()
   })
 
@@ -520,7 +523,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.type(note, 'Pending note')
     await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 1 of 1, First artwork' }))
     await waitFor(() => expect(resolveNoteSave).toBeDefined())
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
 
     await act(async () => { resolveNoteSave?.(respond(committedItem)) })
@@ -546,13 +549,13 @@ describe('museum artwork search and add flow', () => {
     const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
     await userEvent.clear(firstNote)
     await userEvent.type(firstNote, '  First exact draft  ')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Stay' }))
     expect(firstNote).toHaveValue('  First exact draft  ')
 
     await userEvent.type(secondNote, 'Second draft')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(screen.getAllByRole('alertdialog')).toHaveLength(1)
     await userEvent.click(screen.getByRole('button', { name: 'Stay' }))
     expect(firstNote).toHaveValue('  First exact draft  ')
@@ -561,7 +564,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.clear(firstNote)
     await userEvent.type(firstNote, 'Committed first note')
     await userEvent.clear(secondNote)
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
 
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
@@ -586,7 +589,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 1 of 2, First artwork' }))
     await waitFor(() => expect(firstNote).toHaveValue('First saved'))
 
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
 
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
     expect(firstNote).toHaveValue('First saved')
@@ -606,7 +609,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.type(note, 'Unsaved after failure')
     await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 1 of 1, First artwork' }))
     await screen.findByText('Could not save note.')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
 
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
     expect(note).toHaveValue('Unsaved after failure')
@@ -731,18 +734,20 @@ describe('museum artwork search and add flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('selects a cover using the included artwork ID and displays the committed cover', async () => {
+  it('clears cover completion feedback when the committed cover artwork is deleted', async () => {
     const first = curatedItem('First artwork', 1)
     const second = curatedItem('Second artwork', 2)
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
       .mockResolvedValueOnce(respond(detail({ items: [first, second], coverArtworkId: second.artwork.id })))
+      .mockResolvedValueOnce(respond(detail({ items: [first], coverArtworkId: null })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 2 of 2, Second artwork as cover' }))
 
     expect(await screen.findByText('Cover updated.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Continue to preview & publish' })).toHaveAttribute('href', '/exhibitions/1/preview')
     expect(screen.getByRole('button', { name: 'Clear cover, artwork 2 of 2, Second artwork' })).toBeInTheDocument()
     expect(within(screen.getByRole('heading', { name: 'Second artwork' }).closest('article')!).getByText('Current cover')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -750,6 +755,21 @@ describe('museum artwork search and add flow', () => {
       '/api/exhibitions/1/cover',
       expect.objectContaining({ method: 'PUT', body: JSON.stringify({ artworkId: second.artwork.id }) }),
     )
+
+    await userEvent.click(screen.getByRole('button', {
+      name: 'Remove artwork 2 of 2, Second artwork from exhibition',
+    }))
+    await userEvent.click(screen.getByRole('button', {
+      name: 'Confirm removal of artwork 2 of 2, Second artwork',
+    }))
+
+    expect(await screen.findByText('Artwork removed.')).toBeInTheDocument()
+    expect(screen.queryByText('Cover updated.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Continue to preview & publish' })).not.toBeInTheDocument()
+    expect(screen.getByText('No cover selected. Choose an artwork below to use as the exhibition cover.')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Exhibition actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Back to exhibition' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Preview exhibition' })).not.toBeInTheDocument()
   })
 
   it('replaces the cover and uses the committed response rather than the requested artwork', async () => {
@@ -795,6 +815,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Replace cover with artwork 2 of 2, Second artwork' }))
 
     expect(await screen.findByText('That artwork is not in this exhibition.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Continue to preview & publish' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Clear cover, artwork 1 of 2, First artwork' })).toBeInTheDocument()
   })
 
@@ -956,7 +977,7 @@ describe('museum artwork search and add flow', () => {
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
     await waitFor(() => expect(coverSignal?.aborted).toBe(true))
-    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Second exhibition')).toBeInTheDocument()
   })
 
   it('gives same-titled artworks distinct note, move, and remove names', async () => {
@@ -1005,12 +1026,15 @@ describe('museum artwork search and add flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('deletes a non-cover item and installs the authoritative cover, order, and count', async () => {
+  it('preserves valid cover completion feedback when a non-cover item is deleted', async () => {
     const cover = curatedItem('Cover artwork', 1)
     const removed = curatedItem('Removed artwork', 2)
     const last = curatedItem('Last artwork', 3)
     const committedLast = { ...last, position: 2 }
     const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({
+        items: [cover, removed, last],
+      })))
       .mockResolvedValueOnce(respond(detail({
         items: [cover, removed, last],
         coverArtworkId: cover.artwork.id,
@@ -1021,6 +1045,12 @@ describe('museum artwork search and add flow', () => {
       })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', {
+      name: 'Set artwork 1 of 3, Cover artwork as cover',
+    }))
+    expect(await screen.findByText('Cover updated.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Continue to preview & publish' })).toBeInTheDocument()
 
     await userEvent.click(await screen.findByRole('button', {
       name: 'Remove artwork 2 of 3, Removed artwork from exhibition',
@@ -1038,7 +1068,9 @@ describe('museum artwork search and add flow', () => {
     expect(screen.getByRole('button', {
       name: 'Move artwork 2 of 2, Last artwork down',
     })).toBeDisabled()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Cover updated.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Continue to preview & publish' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('preserves an unrelated dirty note and navigation protection after deletion', async () => {
@@ -1064,7 +1096,7 @@ describe('museum artwork search and add flow', () => {
     expect(screen.queryByRole('heading', { name: 'Artwork to remove' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Curatorial note for artwork 1 of 1: Artwork with draft'))
       .toHaveValue('Unsaved note that must survive')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
     expect(window.location.pathname).toBe('/exhibitions/1/artworks')
   })
@@ -1085,7 +1117,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 1, First artwork' }))
     await screen.findByText('Artwork removed.')
 
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
 
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
@@ -1320,7 +1352,7 @@ describe('museum artwork search and add flow', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /Save note for artwork/ }))
     await screen.findByText(/loading the committed published version/i)
-    const previewLink = screen.getByRole('link', { name: 'Preview exhibition' })
+    const previewLink = screen.getByRole('link', { name: 'Preview & publish' })
     previewLink.focus()
     expect(previewLink).toHaveFocus()
     resolveReconciliation?.(respond(detail({
@@ -1496,6 +1528,6 @@ describe('museum artwork search and add flow', () => {
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
     await waitFor(() => expect(mutationSignal?.aborted).toBe(true))
-    expect(await screen.findByText(/Second exhibition/)).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Second exhibition')).toBeInTheDocument()
   })
 })

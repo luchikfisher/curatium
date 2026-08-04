@@ -10,6 +10,10 @@ import {
 import {
   DirtyNavigationConfirmation,
 } from '../features/exhibitions/DirtyNavigationGuard'
+import {
+  CuratorExhibitionContext,
+  CuratorNextStep,
+} from '../features/exhibitions/CuratorExhibitionContext'
 import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import {
   addExhibitionArtwork,
@@ -142,6 +146,9 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     : currentExhibition.items.find((item) => item.artwork.id === currentExhibition.coverArtworkId) ?? null
 
   function replaceExhibition(nextExhibition: ExhibitionDetail) {
+    if (nextExhibition.coverArtworkId !== currentExhibition.coverArtworkId) {
+      setCoverSuccess('')
+    }
     const retainedItemIds = new Set(nextExhibition.items.map((item) => item.id))
     setNoteDrafts((current) => {
       const retained = Object.fromEntries(
@@ -583,10 +590,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         <h1>Add artworks</h1>
         <p className="lede">Search the collection and add public-domain works to {currentExhibition.title}.</p>
       </div>
-      <nav className="editor-links" aria-label="Exhibition actions">
-        <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/edit`}>Back to exhibition</Link>
-        <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/preview`}>Preview exhibition</Link>
-      </nav>
+      <CuratorExhibitionContext exhibition={currentExhibition} activeStep="artworks" />
       <AuthoritativeReconciliationNotice
         phase={reconciliationPhase}
         onRetry={reconcilePublishedConflict}
@@ -619,7 +623,15 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           <p className="section-copy">No cover selected. Choose an artwork below to use as the exhibition cover.</p>
         )}
         {coverError && <p className="form-alert" role="alert">{coverError}</p>}
-        {coverSuccess && <p className="form-success" role="status">{coverSuccess}</p>}
+        {coverSuccess === 'Cover updated.' ? (
+          <CuratorNextStep
+            message={coverSuccess}
+            to={`/exhibitions/${currentExhibition.id}/preview`}
+            label="Continue to preview & publish"
+          />
+        ) : coverSuccess ? (
+          <p className="form-success" role="status">{coverSuccess}</p>
+        ) : null}
       </section>
       <section className="artwork-search-section" aria-labelledby="current-artworks-heading">
         <h2 id="current-artworks-heading">Current artworks ({currentExhibition.items.length}/10)</h2>

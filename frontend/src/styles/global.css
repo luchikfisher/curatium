@@ -84,6 +84,15 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .editor-page { padding-bottom: 6rem; }
 .editor-heading { padding-bottom: 2.25rem; }
 .editor-heading h1, .editor-state h1 { font-size: clamp(2.6rem, 5vw, 4.4rem); }
+.curator-context { min-width: 0; margin-bottom: 1.5rem; border-block: 1px solid var(--line); padding: 1rem 0; }
+.curator-context__identity { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem 1rem; min-width: 0; }
+.curator-context__title { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; }
+.curator-context__navigation { display: flex; flex-wrap: wrap; gap: .5rem 1rem; min-width: 0; margin-top: .85rem; }
+.curator-context__link { max-width: 100%; color: var(--ink); overflow-wrap: anywhere; text-underline-offset: .2rem; }
+.curator-context__link[aria-current="page"] { font-weight: 800; text-decoration-thickness: .16rem; }
+.curator-context__link--all { margin-left: auto; }
+.curator-next-step { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; max-width: 48rem; margin: 0 0 1.5rem; border-left: 3px solid #27623c; padding: .75rem 1rem; background: #edf7ef; color: #1d4f30; }
+.curator-next-step p { margin: 0; }
 .editor-links { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 2rem; }
 .editor-links .button-secondary { margin: 0; }
 .editor-section { max-width: 48rem; padding: 2rem 0; border-top: 1px solid var(--line); }
@@ -321,6 +330,7 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
   .page-heading--with-action .button { align-self: flex-start; }
   .content-section { padding-bottom: 4rem; }
   .editor-page { padding-bottom: 4rem; }
+  .curator-context__link--all { width: 100%; margin-left: 0; }
   .artwork-search-page { padding-bottom: 4rem; }
   .museum-search-form__controls { align-items: stretch; flex-direction: column; }
   .preview-publication dl { grid-template-columns: 1fr; }

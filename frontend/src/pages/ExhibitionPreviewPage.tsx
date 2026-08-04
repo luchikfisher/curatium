@@ -5,6 +5,7 @@ import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
+import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibitionContext'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 
@@ -121,10 +122,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         <h1>{exhibition.title}</h1>
         {exhibition.summary ? <p className="lede">{exhibition.summary}</p> : <p className="lede preview-empty-copy">No summary has been provided.</p>}
       </div>
-      <nav className="editor-links" aria-label="Preview actions">
-        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/edit`}>{isPublished ? 'View metadata' : 'Edit metadata'}</Link>
-        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/artworks`}>{isPublished ? 'View artworks' : 'Curate artworks'}</Link>
-      </nav>
+      <CuratorExhibitionContext exhibition={exhibition} activeStep="preview" />
       <LazyExhibitionGallery
         exhibition={exhibition}
         fallback={<p className="virtual-gallery__fallback">The standard curator preview is shown below.</p>}
