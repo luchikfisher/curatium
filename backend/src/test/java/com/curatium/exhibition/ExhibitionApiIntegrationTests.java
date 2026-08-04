@@ -414,7 +414,13 @@ class ExhibitionApiIntegrationTests {
         jdbcTemplate.update("UPDATE exhibitions SET cover_artwork_id = ? WHERE id = ?", coverArtworkId, exhibitionId);
 
         mockMvc.perform(delete("/api/exhibitions/{exhibitionId}/items/{itemId}", exhibitionId, coverItemId))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.coverArtworkId").doesNotExist())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].position").value(1))
+                .andExpect(jsonPath("$.items[0].artwork.id").value(firstArtworkId))
+                .andExpect(jsonPath("$.items[1].position").value(2))
+                .andExpect(jsonPath("$.items[1].artwork.id").value(lastArtworkId));
 
         mockMvc.perform(get("/api/exhibitions/{exhibitionId}", exhibitionId))
                 .andExpect(status().isOk())
@@ -428,6 +434,32 @@ class ExhibitionApiIntegrationTests {
                 "SELECT count(*) FROM artworks WHERE id = ?", Integer.class, coverArtworkId
         ));
         assertContinuousPositions(exhibitionId);
+    }
+
+    @Test
+    void removesNonCoverItemPreservesCoverAndReturnsAuthoritativeOrder() throws Exception {
+        long exhibitionId = insertExhibition("Non-cover removal");
+        long coverArtworkId = insertArtwork("retained-cover");
+        long removedArtworkId = insertArtwork("removed-non-cover");
+        long lastArtworkId = insertArtwork("retained-last");
+        insertExhibitionItem(exhibitionId, coverArtworkId, 1);
+        long removedItemId = insertExhibitionItem(exhibitionId, removedArtworkId, 2);
+        insertExhibitionItem(exhibitionId, lastArtworkId, 3);
+        jdbcTemplate.update("UPDATE exhibitions SET cover_artwork_id = ? WHERE id = ?", coverArtworkId, exhibitionId);
+
+        mockMvc.perform(delete("/api/exhibitions/{exhibitionId}/items/{itemId}", exhibitionId, removedItemId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.coverArtworkId").value(coverArtworkId))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].position").value(1))
+                .andExpect(jsonPath("$.items[0].artwork.id").value(coverArtworkId))
+                .andExpect(jsonPath("$.items[1].position").value(2))
+                .andExpect(jsonPath("$.items[1].artwork.id").value(lastArtworkId));
+
+        assertContinuousPositions(exhibitionId);
+        assertEquals(coverArtworkId, jdbcTemplate.queryForObject(
+                "SELECT cover_artwork_id FROM exhibitions WHERE id = ?", Long.class, exhibitionId
+        ));
     }
 
     @Test
@@ -481,7 +513,7 @@ class ExhibitionApiIntegrationTests {
             releaseMetadataUpdate.countDown();
 
             assertEquals(200, metadataUpdate.get(10, TimeUnit.SECONDS).getResponse().getStatus());
-            assertEquals(204, removeCoverItem.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(200, removeCoverItem.get(10, TimeUnit.SECONDS).getResponse().getStatus());
         } finally {
             releaseMetadataUpdate.countDown();
             callers.shutdownNow();
@@ -1067,7 +1099,7 @@ class ExhibitionApiIntegrationTests {
             releaseCoverSelection.countDown();
 
             assertEquals(200, selectCover.get(10, TimeUnit.SECONDS).getResponse().getStatus());
-            assertEquals(204, removeItem.get(10, TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(200, removeItem.get(10, TimeUnit.SECONDS).getResponse().getStatus());
         } finally {
             releaseCoverSelection.countDown();
             callers.shutdownNow();

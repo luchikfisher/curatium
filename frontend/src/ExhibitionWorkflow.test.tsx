@@ -382,7 +382,14 @@ describe('exhibition create and edit workflow', () => {
     expect(await screen.findByDisplayValue('Second exhibition')).toBeInTheDocument()
   })
 
-  it('handles a published read-only response explicitly', async () => {
+  it('reconciles a metadata conflict to committed published values', async () => {
+    const committedPublished = detail({
+      title: 'Committed published title',
+      summary: 'Committed published summary',
+      introduction: 'Committed published introduction',
+      status: 'PUBLISHED',
+      publishedAt: '2026-08-04T09:00:00Z',
+    })
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail()))
       .mockResolvedValueOnce(respond(error(
@@ -390,6 +397,7 @@ describe('exhibition create and edit workflow', () => {
         'Published exhibitions cannot be changed.',
         409,
       ), 409))
+      .mockResolvedValueOnce(respond(committedPublished))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/edit')
 
@@ -398,9 +406,135 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.type(title, 'Change attempted')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
 
-    expect(await screen.findByText(/published and read-only/i)).toBeInTheDocument()
+    const reconciliationStatus = await screen.findByText(/attempted change was not saved because this exhibition is now published/i)
+    expect(reconciliationStatus).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Committed published title')
+    expect(screen.getByLabelText(/summary/i)).toHaveValue('Committed published summary')
+    expect(screen.getByLabelText(/introduction/i)).toHaveValue('Committed published introduction')
+    expect(screen.queryByDisplayValue('Change attempted')).not.toBeInTheDocument()
     expect(screen.getByLabelText(/title/i)).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Delete exhibition' })).not.toBeInTheDocument()
+  })
+
+  it('labels failed metadata reconciliation and installs committed values after retry', async () => {
+    const committedPublished = detail({
+      title: 'Recovered published title',
+      status: 'PUBLISHED',
+      publishedAt: '2026-08-04T09:00:00Z',
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(error(
+        'PUBLISHED_EXHIBITION_READ_ONLY',
+        'Published exhibitions cannot be changed.',
+        409,
+      ), 409))
+      .mockRejectedValueOnce(new TypeError('Connection lost'))
+      .mockResolvedValueOnce(respond(committedPublished))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Rejected local title')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+
+    expect(await screen.findByText(/displayed information may be stale or unsaved/i)).toBeInTheDocument()
+    expect(title).toHaveValue('Rejected local title')
+    expect(title).toBeDisabled()
+    const retryButton = screen.getByRole('button', { name: 'Retry loading committed version' })
+    expect(retryButton).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    await userEvent.click(retryButton)
+
+    expect(await screen.findByDisplayValue('Recovered published title')).toBeDisabled()
+    expect(screen.queryByDisplayValue('Rejected local title')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry loading committed version' })).not.toBeInTheDocument()
+    expect(screen.getByText(/committed published version is shown below/i)).toHaveFocus()
+  })
+
+  it('does not steal metadata reconciliation focus when the curator moves elsewhere', async () => {
+    let resolveReconciliation: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(error(
+        'PUBLISHED_EXHIBITION_READ_ONLY',
+        'Published exhibitions cannot be changed.',
+        409,
+      ), 409))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveReconciliation = resolve
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Rejected local title')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await screen.findByText(/loading the committed published version/i)
+
+    const previewLink = screen.getByRole('link', { name: 'Preview exhibition' })
+    previewLink.focus()
+    expect(previewLink).toHaveFocus()
+    resolveReconciliation?.(respond(detail({
+      title: 'Committed title',
+      status: 'PUBLISHED',
+      publishedAt: '2026-08-04T09:00:00Z',
+    })))
+
+    await screen.findByDisplayValue('Committed title')
+    expect(previewLink).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('ignores a late reconciliation response after changing exhibition routes', async () => {
+    let reconciliationSignal: AbortSignal | undefined
+    let resolveReconciliation: ((response: Response) => void) | undefined
+    let firstLoadComplete = false
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1' && options?.method === 'PUT') {
+        return Promise.resolve(respond(error('PUBLISHED_EXHIBITION_READ_ONLY', 'Read only.', 409), 409))
+      }
+      if (path === '/api/exhibitions/1' && !firstLoadComplete) {
+        firstLoadComplete = true
+        return Promise.resolve(respond(detail({ id: 1, title: 'First exhibition' })))
+      }
+      if (path === '/api/exhibitions/1') {
+        reconciliationSignal = options?.signal as AbortSignal
+        return new Promise<Response>((resolve) => { resolveReconciliation = resolve })
+      }
+      if (path === '/api/exhibitions/2') {
+        return Promise.resolve(respond(detail({ id: 2, title: 'Second exhibition' })))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    const title = await screen.findByLabelText(/title/i)
+    await userEvent.clear(title)
+    await userEvent.type(title, 'Rejected first-exhibition draft')
+    await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
+    expect(await screen.findByText(/loading the committed published version/i)).toBeInTheDocument()
+
+    const routeChange = appRouter.navigate('/exhibitions/2/edit')
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await routeChange
+
+    expect(await screen.findByDisplayValue('Second exhibition')).toBeInTheDocument()
+    expect(reconciliationSignal?.aborted).toBe(true)
+    resolveReconciliation?.(respond(detail({
+      id: 1,
+      title: 'Late published first exhibition',
+      status: 'PUBLISHED',
+      publishedAt: '2026-08-04T09:00:00Z',
+    })))
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByDisplayValue('Second exhibition')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Late published first exhibition')).not.toBeInTheDocument()
   })
 
   it('shows not-found and retries the metadata request', async () => {
@@ -483,7 +617,7 @@ describe('exhibition create and edit workflow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('handles a published deletion conflict as read-only', async () => {
+  it('reconciles a published deletion conflict as read-only', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail()))
       .mockResolvedValueOnce(respond(error(
@@ -491,6 +625,11 @@ describe('exhibition create and edit workflow', () => {
         'Published exhibitions cannot be deleted.',
         409,
       ), 409))
+      .mockResolvedValueOnce(respond(detail({
+        title: 'Published committed exhibition',
+        status: 'PUBLISHED',
+        publishedAt: '2026-08-04T09:00:00Z',
+      })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/edit')
 
@@ -498,7 +637,8 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Delete exhibition' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm deletion' }))
 
-    expect(await screen.findByText(/published and read-only/i)).toBeInTheDocument()
+    expect(await screen.findByText(/attempted change was not saved because this exhibition is now published/i)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Published committed exhibition')).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Delete exhibition' })).not.toBeInTheDocument()
   })
 

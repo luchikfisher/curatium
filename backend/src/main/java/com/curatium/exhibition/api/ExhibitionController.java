@@ -59,12 +59,11 @@ public class ExhibitionController {
     }
 
     @DeleteMapping("/{exhibitionId}/items/{itemId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeExhibitionItem(
+    public ExhibitionDetailResponse removeExhibitionItem(
             @PathVariable long exhibitionId,
             @PathVariable long itemId
     ) {
-        exhibitionService.removeExhibitionItem(exhibitionId, itemId);
+        return exhibitionService.removeExhibitionItem(exhibitionId, itemId);
     }
 
     @PostMapping("/{exhibitionId}/items/{itemId}/move-up")
