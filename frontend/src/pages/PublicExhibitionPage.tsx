@@ -1,9 +1,11 @@
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isFrontendError, FrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getPublicExhibition } from '../features/exhibitions/api'
 import { PublicExhibitionContent } from '../features/exhibitions/PublicExhibitionContent'
 import { useExhibition } from '../features/exhibitions/useExhibition'
+import { curatorReturnTarget } from '../features/exhibitions/curatorVisitState'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 import type { PublicExhibitionDetail } from '../features/exhibitions/types'
 
@@ -15,7 +17,15 @@ export function PublicExhibitionPage() {
 }
 
 function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const { data: exhibition, error, retry } = useExhibition(exhibitionId, getPublicExhibition)
+  const [curatorReturnTo] = useState(() => curatorReturnTarget(location.state, exhibitionId))
+
+  useEffect(() => {
+    if (curatorReturnTo === null) return
+    navigate(location.pathname, { replace: true, state: null })
+  }, [curatorReturnTo, location.pathname, navigate])
 
   if (exhibition?.id !== exhibitionId) {
     if (!error && exhibition === null) return <LoadingState label="Loading exhibition…" />
@@ -30,18 +40,34 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
     <LazyExhibitionGallery
       exhibition={exhibition}
       headingLevel={1}
-      fallback={<StandardExhibition exhibition={exhibition} />}
-      exitAction={<Link className="text-link" to="/">Exit to exhibitions</Link>}
+      fallback={<StandardExhibition exhibition={exhibition} curatorReturnTo={curatorReturnTo} />}
+      exitAction={(
+        <>
+          {curatorReturnTo && (
+            <Link className="text-link" to={curatorReturnTo}>Return to curator preview</Link>
+          )}
+          <Link className="text-link" to="/">Exit to exhibitions</Link>
+        </>
+      )}
     />
   )
 }
 
-function StandardExhibition({ exhibition }: { exhibition: PublicExhibitionDetail }) {
+function StandardExhibition({
+  exhibition,
+  curatorReturnTo,
+}: {
+  exhibition: PublicExhibitionDetail
+  curatorReturnTo: string | null
+}) {
   return (
     <>
       <PublicExhibitionContent exhibition={exhibition} />
       <nav className="public-exhibition__navigation" aria-label="Exhibition navigation">
-        <Link className="text-link" to="/">Back to exhibitions</Link>
+        {curatorReturnTo && (
+          <Link className="text-link" to={curatorReturnTo}>Return to curator preview</Link>
+        )}
+        <Link className="text-link" to="/">Exit to exhibitions</Link>
       </nav>
     </>
   )

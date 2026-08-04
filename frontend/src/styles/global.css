@@ -142,9 +142,11 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .preview-publication__controls h3 { margin: 0 0 .65rem; font-family: Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 400; }
 .preview-publication__controls > p:not(.form-alert):not(.form-success) { margin: 0; color: var(--muted); line-height: 1.6; }
 .publication-prerequisites { display: grid; gap: .4rem; margin: 1rem 0 1.25rem; padding-left: 1.25rem; color: var(--muted); line-height: 1.5; }
+.publication-prerequisites li { min-width: 0; overflow-wrap: anywhere; }
 .publication-prerequisites strong { color: var(--ink); }
 .preview-publication__controls .form-alert, .preview-publication__controls .form-success { margin-top: 1rem; }
-.preview-publication__controls .button { margin-top: .25rem; }
+.preview-publication__controls .button { max-width: 100%; margin-top: .25rem; text-align: center; }
+.preview-publication__public-link { margin-right: .75rem; }
 .unpublish-confirmation { display: grid; gap: .75rem; max-width: 36rem; margin-top: 1rem; border: 1px solid #d7a69f; padding: 1rem; background: #fff3f0; }
 .unpublish-confirmation h4, .unpublish-confirmation p { margin: 0; }
 .unpublish-confirmation h4 { color: #69231b; font-size: 1.05rem; }

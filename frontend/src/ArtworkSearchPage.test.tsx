@@ -744,6 +744,10 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
+    await userEvent.type(
+      await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork'),
+      'Unsaved note',
+    )
     await userEvent.click(await screen.findByRole('button', { name: 'Set artwork 2 of 2, Second artwork as cover' }))
 
     expect(await screen.findByText('Cover updated.')).toBeInTheDocument()
@@ -755,6 +759,9 @@ describe('museum artwork search and add flow', () => {
       '/api/exhibitions/1/cover',
       expect.objectContaining({ method: 'PUT', body: JSON.stringify({ artworkId: second.artwork.id }) }),
     )
+    await userEvent.click(screen.getByRole('link', { name: 'Continue to preview & publish' }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Stay' }))
 
     await userEvent.click(screen.getByRole('button', {
       name: 'Remove artwork 2 of 2, Second artwork from exhibition',

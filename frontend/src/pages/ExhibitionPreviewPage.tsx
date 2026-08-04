@@ -6,6 +6,7 @@ import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibitionContext'
+import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 
@@ -201,10 +202,31 @@ function PublicationControls({
   const isPublishing = mutation === 'publish'
   const isUnpublishing = mutation === 'unpublish'
   const prerequisites = [
-    { label: 'A title', met: exhibition.title.trim().length > 0 },
-    { label: 'At least one artwork', met: exhibition.items.length > 0 },
-    { label: 'A cover selected from an included artwork', met: coverItem !== null },
+    {
+      id: 'title',
+      label: 'A nonblank title',
+      met: exhibition.title.trim().length > 0,
+      action: 'Edit metadata',
+      to: `/exhibitions/${exhibition.id}/edit`,
+    },
+    {
+      id: 'artwork',
+      label: 'At least one artwork',
+      met: exhibition.items.length > 0,
+      action: 'Curate artworks',
+      to: `/exhibitions/${exhibition.id}/artworks`,
+    },
+    {
+      id: 'cover',
+      label: exhibition.items.length === 0
+        ? 'Add an artwork before choosing a cover'
+        : 'A cover selected from the current artworks',
+      met: coverItem !== null,
+      action: exhibition.items.length === 0 ? null : 'Choose a cover',
+      to: `/exhibitions/${exhibition.id}/artworks`,
+    },
   ]
+  const isReadyToPublish = prerequisites.every((prerequisite) => prerequisite.met)
 
   useEffect(() => {
     if (confirmingUnpublish) cancelUnpublishRef.current?.focus({ preventScroll: true })
@@ -250,19 +272,38 @@ function PublicationControls({
   return (
     <div className="preview-publication__controls">
       <h3>Publication controls</h3>
-      <p>{isPublished
-        ? 'Published exhibitions are read-only. Unpublish to restore metadata and artwork curation.'
-        : 'Publishing requires all of the following. Curatium verifies the current server state when you publish.'}
-      </p>
-      <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
-        {prerequisites.map((prerequisite) => (
-          <li key={prerequisite.label}>
-            <strong>{prerequisite.met ? 'Ready' : 'Required'}:</strong> {prerequisite.label}
-          </li>
-        ))}
-      </ul>
+      {isPublished ? (
+        <p>Published exhibitions are read-only. Unpublish to restore metadata and artwork curation.</p>
+      ) : (
+        <>
+          <p id="publication-readiness-explanation">
+            {isReadyToPublish
+              ? 'This exhibition is ready to publish. Curatium will verify the current server state when you publish.'
+              : 'Publish is unavailable until every required item below is ready.'}
+          </p>
+          <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
+            {prerequisites.map((prerequisite) => (
+              <li key={prerequisite.id}>
+                <strong>{prerequisite.met ? 'Ready' : 'Required'}:</strong> {prerequisite.label}
+                {!prerequisite.met && prerequisite.action && (
+                  <> — <Link className="text-link" to={prerequisite.to}>{prerequisite.action}</Link></>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {error && <PublicationError error={error} />}
       {success && <p ref={successRef} className="form-success" role="status" tabIndex={-1}>{success}</p>}
+      {isPublished && (
+        <Link
+          className="button button-secondary preview-publication__public-link"
+          to={`/visit/${exhibition.id}`}
+          state={createCuratorVisitState(exhibition.id)}
+        >
+          View public exhibition
+        </Link>
+      )}
       {isPublished && confirmingUnpublish ? (
         <div
           className="unpublish-confirmation"
@@ -301,11 +342,11 @@ function PublicationControls({
           ref={isPublished ? unpublishTriggerRef : undefined}
           className="button"
           type="button"
-          disabled={mutation !== null}
-          aria-describedby={isPublished ? undefined : 'publication-prerequisites'}
+          disabled={mutation !== null || (!isPublished && !isReadyToPublish)}
+          aria-describedby={isPublished ? undefined : 'publication-readiness-explanation publication-prerequisites'}
           onClick={() => {
             if (isPublished) requestUnpublish()
-            else void onTransition('publish')
+            else if (isReadyToPublish) void onTransition('publish')
           }}
         >
           {isPublishing ? 'Publishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}
