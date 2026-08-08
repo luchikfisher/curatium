@@ -1,5 +1,5 @@
-import { useCallback, useLayoutEffect, useMemo, useState } from 'react'
-import { useMatches } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMatches, useNavigationType } from 'react-router-dom'
 import {
   readRouteOrientationMetadata,
   type RouteOrientationId,
@@ -19,22 +19,41 @@ interface RegisteredRouteTitle extends RouteTitleRegistration {
   session: symbol
 }
 
+interface RegisteredRouteFocusTarget {
+  owner: symbol
+  session: symbol
+  target: HTMLElement
+}
+
 interface RouteTitleRegistryState {
   identity: string
   session: symbol
   registrations: Map<string, RegisteredRouteTitle>
+  focusRequested: boolean
+  focusTarget: RegisteredRouteFocusTarget | null
+}
+
+interface RouteFocusIntent {
+  session: symbol
+  origin: Element | null
+  completed: boolean
 }
 
 export function RouteOrientationProvider({ children }: { children: React.ReactNode }) {
   const matches = useMatches()
+  const navigationType = useNavigationType()
   const currentRoute = currentOrientationRoute(matches)
   const currentIdentity = routeIdentity(currentRoute)
   const [registryState, setRegistryState] = useState<RouteTitleRegistryState>(
-    () => createRegistryState(currentIdentity),
+    () => createRegistryState(currentIdentity, false),
   )
+  const focusIntentRef = useRef<RouteFocusIntent | null>(null)
   let activeRegistryState = registryState
   if (registryState.identity !== currentIdentity) {
-    activeRegistryState = createRegistryState(currentIdentity)
+    activeRegistryState = createRegistryState(
+      currentIdentity,
+      navigationType === 'PUSH' || navigationType === 'REPLACE',
+    )
     setRegistryState(activeRegistryState)
   }
   const activeSession = activeRegistryState.session
@@ -76,20 +95,109 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
     })
   }, [])
 
+  const registerFocusTarget = useCallback((candidate: RegisteredRouteFocusTarget) => {
+    setRegistryState((current) => {
+      if (current.session !== candidate.session) return current
+      const existing = current.focusTarget
+      if (
+        existing
+        && existing.owner !== candidate.owner
+        && existing.target.isConnected
+      ) {
+        return current
+      }
+      if (existing?.owner === candidate.owner && existing.target === candidate.target) return current
+      return { ...current, focusTarget: candidate }
+    })
+  }, [])
+
+  const removeFocusTarget = useCallback((owner: symbol, session: symbol) => {
+    setRegistryState((current) => {
+      if (
+        current.session !== session
+        || current.focusTarget?.session !== session
+        || current.focusTarget.owner !== owner
+      ) {
+        return current
+      }
+      return { ...current, focusTarget: null }
+    })
+  }, [])
+
   const registry = useMemo(() => {
     return {
       update: (candidate: RouteTitleRegistration) => update({ ...candidate, session: activeSession }),
       remove: (owner: symbol) => remove(owner, activeSession),
+      registerFocusTarget: (owner: symbol, target: HTMLElement) => registerFocusTarget({
+        owner,
+        target,
+        session: activeSession,
+      }),
+      removeFocusTarget: (owner: symbol) => removeFocusTarget(owner, activeSession),
     }
-  }, [activeSession, remove, update])
+  }, [activeSession, registerFocusTarget, remove, removeFocusTarget, update])
   const title = registeredTitleForCurrentRoute(activeRegistryState, currentRoute)
     ?? currentRoute.metadata?.loadingTitle
     ?? currentRoute.metadata?.staticTitle
     ?? 'Curatium'
+  const focusOwner = currentRoute.metadata?.focusOwner ?? null
+  const focusRequested = activeRegistryState.focusRequested
+  const registeredFocusTarget = activeRegistryState.focusTarget?.target ?? null
 
   useLayoutEffect(() => {
     document.title = title
   }, [title])
+
+  useEffect(() => {
+    let intent = focusIntentRef.current
+    if (intent?.session !== activeSession) {
+      const origin = document.activeElement
+      intent = {
+        session: activeSession,
+        origin,
+        completed: !focusRequested || !mayReplaceRouteOrigin(origin),
+      }
+      focusIntentRef.current = intent
+    }
+    if (intent.completed) return
+
+    const target = focusOwner === 'gallery'
+      ? registeredFocusTarget
+      : layoutFocusTarget()
+    const cancelWhenFocusMoves = (event: FocusEvent) => {
+      if (focusIntentRef.current === intent && event.target !== intent.origin) {
+        intent.completed = true
+      }
+    }
+    document.addEventListener('focusin', cancelWhenFocusMoves)
+
+    if (!target?.isConnected) {
+      return () => document.removeEventListener('focusin', cancelWhenFocusMoves)
+    }
+
+    const timeout = window.setTimeout(() => {
+      if (focusIntentRef.current !== intent || intent.completed) return
+      const activeElement = document.activeElement
+      if (activeElement === target) {
+        intent.completed = true
+        return
+      }
+      if (
+        activeElement !== intent.origin
+        && !(intent.origin && !intent.origin.isConnected && activeElement === document.body)
+      ) {
+        intent.completed = true
+        return
+      }
+      if (target instanceof HTMLHeadingElement) target.tabIndex = -1
+      intent.completed = true
+      target.focus()
+    }, 0)
+    return () => {
+      window.clearTimeout(timeout)
+      document.removeEventListener('focusin', cancelWhenFocusMoves)
+    }
+  }, [activeSession, focusOwner, focusRequested, registeredFocusTarget])
 
   return (
     <RouteTitleRegistryContext.Provider value={registry}>
@@ -142,12 +250,25 @@ function routeIdentity(currentRoute: CurrentRoute): string {
     : 'unoriented-route'
 }
 
-function createRegistryState(identity: string): RouteTitleRegistryState {
+function createRegistryState(identity: string, focusRequested: boolean): RouteTitleRegistryState {
   return {
     identity,
     session: Symbol(`route-title-session:${identity}`),
     registrations: new Map(),
+    focusRequested,
+    focusTarget: null,
   }
+}
+
+function mayReplaceRouteOrigin(origin: Element | null): boolean {
+  if (!origin || origin === document.body || !origin.isConnected) return true
+  const main = document.getElementById('main-content')
+  return !main?.contains(origin)
+}
+
+function layoutFocusTarget(): HTMLElement | null {
+  const main = document.getElementById('main-content')
+  return main?.querySelector<HTMLElement>('h1') ?? main
 }
 
 function parseExhibitionId(value: string | undefined): number | null {

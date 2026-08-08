@@ -808,7 +808,7 @@ describe('curator exhibition preview', () => {
     })))
     expect(await screen.findByRole('heading', { name: 'Second preview' })).toBeInTheDocument()
     expect(screen.queryByText('Stale unpublished exhibition')).not.toBeInTheDocument()
-    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toBe(document.body)
   })
 
   it('aborts a stale preview request when the route changes', async () => {

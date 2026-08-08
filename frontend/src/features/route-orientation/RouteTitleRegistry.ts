@@ -11,6 +11,8 @@ export interface RouteTitleRegistration {
 export interface RouteTitleRegistry {
   update: (registration: RouteTitleRegistration) => void
   remove: (owner: symbol) => void
+  registerFocusTarget: (owner: symbol, target: HTMLElement) => void
+  removeFocusTarget: (owner: symbol) => void
 }
 
 export const RouteTitleRegistryContext = createContext<RouteTitleRegistry | null>(null)
