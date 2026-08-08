@@ -115,6 +115,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const isPublished = exhibition.status === 'PUBLISHED'
   const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
   const artworkSearchReturnTarget = readArtworkSearchReturnTarget(location.state, exhibitionId)
+  const artworksDestination = artworkSearchReturnTarget ?? `/exhibitions/${exhibitionId}/artworks`
 
   return (
     <section className="exhibition-preview">
@@ -129,7 +130,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
       <CuratorExhibitionContext
         exhibition={exhibition}
         activeStep="preview"
-        artworksDestination={artworkSearchReturnTarget ?? undefined}
+        artworksDestination={artworksDestination}
       />
       <LazyExhibitionGallery
         exhibition={exhibition}
@@ -155,6 +156,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           mutation={publicationMutation}
           error={reconciledUnpublishDraft ? null : publicationError}
           success={publicationSuccess}
+          artworksDestination={artworksDestination}
           onTransition={transitionPublication}
           onClearFeedback={clearPublicationFeedback}
         />
@@ -189,6 +191,7 @@ function PublicationControls({
   mutation,
   error,
   success,
+  artworksDestination,
   onTransition,
   onClearFeedback,
 }: {
@@ -197,6 +200,7 @@ function PublicationControls({
   mutation: 'publish' | 'unpublish' | null
   error: Error | null
   success: string | null
+  artworksDestination: string
   onTransition: (action: 'publish' | 'unpublish') => Promise<boolean>
   onClearFeedback: () => void
 }) {
@@ -221,7 +225,7 @@ function PublicationControls({
       label: 'At least one artwork',
       met: exhibition.items.length > 0,
       action: 'Curate artworks',
-      to: `/exhibitions/${exhibition.id}/artworks`,
+      to: artworksDestination,
     },
     {
       id: 'cover',
@@ -230,7 +234,7 @@ function PublicationControls({
         : 'A cover selected from the current artworks',
       met: coverItem !== null,
       action: exhibition.items.length === 0 ? null : 'Choose a cover',
-      to: `/exhibitions/${exhibition.id}/artworks`,
+      to: artworksDestination,
     },
   ]
   const isReadyToPublish = prerequisites.every((prerequisite) => prerequisite.met)

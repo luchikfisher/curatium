@@ -53,10 +53,18 @@ function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function renderAt(path: string) {
-  window.history.pushState({}, '', path)
+function renderAt(path: string, state?: unknown) {
+  window.history.pushState(state === undefined ? {} : {
+    usr: state,
+    key: 'preview-test',
+    idx: window.history.state?.idx ?? 0,
+  }, '', path)
   window.dispatchEvent(new PopStateEvent('popstate'))
   return render(<App />)
+}
+
+function artworkSearchReturnState(exhibitionId: number, query = 'landscape', page = 2) {
+  return { artworkSearchReturn: { exhibitionId, query, page } }
 }
 
 afterEach(() => {
@@ -271,6 +279,15 @@ describe('curator exhibition preview', () => {
     expect(screen.queryByText('Publishing…')).not.toBeInTheDocument()
   })
 
+  it('uses the same preserved artwork destination for the workflow and missing-artwork action', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({ id: 7 }))))
+    renderAt('/exhibitions/7/preview', artworkSearchReturnState(7))
+
+    const destination = '/exhibitions/7/artworks?q=landscape&page=2'
+    expect(await screen.findByRole('link', { name: 'Artworks' })).toHaveAttribute('href', destination)
+    expect(screen.getByRole('link', { name: 'Curate artworks' })).toHaveAttribute('href', destination)
+  })
+
   it('blocks an item-only draft until a committed cover is selected', async () => {
     const first = item(1)
     const fetchMock = vi.fn().mockResolvedValue(respond(detail({ items: [first] })))
@@ -283,6 +300,27 @@ describe('curator exhibition preview', () => {
     expect(screen.getByRole('link', { name: 'Choose a cover' })).toHaveAttribute('href', '/exhibitions/1/artworks')
     await userEvent.click(publish)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the preserved artwork destination for the missing-cover action', async () => {
+    const first = item(1)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({ items: [first] }))))
+    renderAt('/exhibitions/1/preview', artworkSearchReturnState(1))
+
+    const destination = '/exhibitions/1/artworks?q=landscape&page=2'
+    expect(await screen.findByRole('link', { name: 'Artworks' })).toHaveAttribute('href', destination)
+    expect(screen.getByRole('link', { name: 'Choose a cover' })).toHaveAttribute('href', destination)
+  })
+
+  it.each([
+    ['malformed', { artworkSearchReturn: { exhibitionId: 1, query: ' landscape ', page: 2 } }],
+    ['mismatched', artworkSearchReturnState(2)],
+  ])('falls back to the current exhibition artwork route for %s Preview state', async (_label, state) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({ items: [item(1)] }))))
+    renderAt('/exhibitions/1/preview', state)
+
+    expect(await screen.findByRole('link', { name: 'Artworks' })).toHaveAttribute('href', '/exhibitions/1/artworks')
+    expect(screen.getByRole('link', { name: 'Choose a cover' })).toHaveAttribute('href', '/exhibitions/1/artworks')
   })
 
   it('treats a blank committed title as required metadata', async () => {
