@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArtworkImage } from '../components/ArtworkImage'
 import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibitionContext'
+import { readArtworkSearchReturnTarget } from '../features/exhibitions/artworkSearchNavigation'
 import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
@@ -18,6 +19,7 @@ export function ExhibitionPreviewPage() {
 }
 
 function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
+  const location = useLocation()
   const { data: exhibition, error, retry, replace } = useExhibition(exhibitionId, getExhibition)
   const mutationController = useRef<AbortController | null>(null)
   const mutationInFlight = useRef(false)
@@ -112,6 +114,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
     : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
   const isPublished = exhibition.status === 'PUBLISHED'
   const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
+  const artworkSearchReturnTarget = readArtworkSearchReturnTarget(location.state, exhibitionId)
 
   return (
     <section className="exhibition-preview">
@@ -123,7 +126,11 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         <h1>{exhibition.title}</h1>
         {exhibition.summary ? <p className="lede">{exhibition.summary}</p> : <p className="lede preview-empty-copy">No summary has been provided.</p>}
       </div>
-      <CuratorExhibitionContext exhibition={exhibition} activeStep="preview" />
+      <CuratorExhibitionContext
+        exhibition={exhibition}
+        activeStep="preview"
+        artworksDestination={artworkSearchReturnTarget ?? undefined}
+      />
       <LazyExhibitionGallery
         exhibition={exhibition}
         fallback={<p className="virtual-gallery__fallback">The standard curator preview is shown below.</p>}

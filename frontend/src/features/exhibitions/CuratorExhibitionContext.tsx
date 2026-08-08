@@ -10,6 +10,8 @@ interface CuratorExhibitionContextProps {
     status: ExhibitionStatus
   }
   activeStep: CuratorWorkflowStep
+  artworksDestination?: string
+  previewState?: unknown
 }
 
 const workflowSteps: Array<{
@@ -25,6 +27,8 @@ const workflowSteps: Array<{
 export function CuratorExhibitionContext({
   exhibition,
   activeStep,
+  artworksDestination,
+  previewState,
 }: CuratorExhibitionContextProps) {
   return (
     <section className="curator-context" aria-label="Current exhibition">
@@ -39,7 +43,10 @@ export function CuratorExhibitionContext({
           <Link
             key={step.id}
             className="curator-context__link"
-            to={step.path(exhibition.id)}
+            to={step.id === 'artworks' && artworksDestination
+              ? artworksDestination
+              : step.path(exhibition.id)}
+            state={step.id === 'preview' ? previewState : undefined}
             aria-current={activeStep === step.id ? 'page' : undefined}
           >
             {step.label}
@@ -57,15 +64,17 @@ export function CuratorNextStep({
   message,
   to,
   label,
+  state,
 }: {
   message: string
   to: string
   label: string
+  state?: unknown
 }) {
   return (
     <div className="curator-next-step">
       <p role="status">{message}</p>
-      <Link className="text-link" to={to}>{label}</Link>
+      <Link className="text-link" to={to} state={state}>{label}</Link>
     </div>
   )
 }

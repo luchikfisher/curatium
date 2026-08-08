@@ -187,10 +187,16 @@ describe('museum artwork search and add flow', () => {
         detailLoads += 1
         return Promise.resolve(respond(detailLoads < 3 ? published : draft))
       }
+      if (path === '/api/museum/artworks?q=night&page=2&size=20') {
+        return Promise.resolve(respond(searchPage(
+          [searchArtwork({ title: 'Restored draft search result' })],
+          { page: 2 },
+        )))
+      }
       throw new Error(`Unexpected request: ${path}`)
     })
     vi.stubGlobal('fetch', fetchMock)
-    renderAt('/exhibitions/1/artworks')
+    renderAt('/exhibitions/1/artworks?q=night&page=2')
 
     await userEvent.click(await screen.findByRole('link', { name: 'Return to preview to unpublish' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
@@ -206,6 +212,194 @@ describe('museum artwork search and add flow', () => {
     expect(screen.getAllByRole('button', { name: /Move artwork/ })).toHaveLength(2)
     expect(screen.getByRole('button', { name: /Remove artwork/ })).toBeEnabled()
     expect(screen.queryByRole('heading', { name: 'Review published artworks' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Restored draft search result' })).toBeInTheDocument()
+    expect(window.location.search).toBe('?q=night&page=2')
+  })
+
+  it('writes normalized searches and pagination to the artwork URL', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(searchPage(
+        [searchArtwork({ title: 'Night page one' })],
+        { hasNextPage: true },
+      )))
+      .mockResolvedValueOnce(respond(searchPage(
+        [searchArtwork({ title: 'Night page two' })],
+        { page: 2 },
+      )))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.type(await loadSearchPage(), '  night sky  ')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByRole('heading', { name: 'Night page one' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/artworks')
+    expect(window.location.search).toBe('?q=night+sky')
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
+
+    expect(await screen.findByRole('heading', { name: 'Night page two' })).toBeInTheDocument()
+    expect(window.location.search).toBe('?q=night+sky&page=2')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/museum/artworks?q=night+sky&page=2&size=20',
+      expect.any(Object),
+    )
+  })
+
+  it('performs exactly one search for a canonical bookmarked query and page', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      if (path === '/api/museum/artworks?q=portrait&page=3&size=20') {
+        return Promise.resolve(respond(searchPage(
+          [searchArtwork({ title: 'Bookmarked portrait' })],
+          { page: 3 },
+        )))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks?q=portrait&page=3')
+
+    expect(await screen.findByRole('heading', { name: 'Bookmarked portrait' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Search terms')).toHaveValue('portrait')
+    expect(screen.getByText(/1 result on page 3/i)).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).startsWith('/api/museum/artworks')))
+      .toHaveLength(1)
+  })
+
+  it('canonicalizes an invalid bookmarked page and searches page one once', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      if (path === '/api/museum/artworks?q=landscape&page=1&size=20') {
+        return Promise.resolve(respond(searchPage([searchArtwork({ title: 'Safe first page' })])))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks?q=landscape&page=-4')
+
+    expect(await screen.findByRole('heading', { name: 'Safe first page' })).toBeInTheDocument()
+    expect(window.location.search).toBe('?q=landscape')
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).startsWith('/api/museum/artworks')))
+      .toHaveLength(1)
+  })
+
+  it('restores and refetches searches through browser Back and Forward', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      if (String(path).includes('q=night')) {
+        return Promise.resolve(respond(searchPage([searchArtwork({ title: 'Night result' })])))
+      }
+      if (String(path).includes('q=moon')) {
+        return Promise.resolve(respond(searchPage([searchArtwork({ title: 'Moon result' })])))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const query = await loadSearchPage()
+    await userEvent.type(query, 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Night result' })
+    await userEvent.clear(query)
+    await userEvent.type(query, 'moon')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Moon result' })
+
+    await act(async () => { await appRouter.navigate(-1) })
+    expect(await screen.findByRole('heading', { name: 'Night result' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Search terms')).toHaveValue('night')
+    await act(async () => { await appRouter.navigate(1) })
+    expect(await screen.findByRole('heading', { name: 'Moon result' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Search terms')).toHaveValue('moon')
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('q=night'))).toHaveLength(2)
+    expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('q=moon'))).toHaveLength(2)
+  })
+
+  it('refetches the active page after a Preview round trip', async () => {
+    let detailLoads = 0
+    let pageTwoSearches = 0
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') {
+        detailLoads += 1
+        return Promise.resolve(respond(detail()))
+      }
+      if (path === '/api/museum/artworks?q=night&page=2&size=20') {
+        pageTwoSearches += 1
+        return Promise.resolve(respond(searchPage(
+          [searchArtwork({ title: `Night result load ${pageTwoSearches}` })],
+          { page: 2 },
+        )))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks?q=night&page=2')
+
+    expect(await screen.findByRole('heading', { name: 'Night result load 1' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
+    const artworkLink = await screen.findByRole('link', { name: 'Artworks' })
+    expect(artworkLink).toHaveAttribute('href', '/exhibitions/1/artworks?q=night&page=2')
+    await userEvent.click(artworkLink)
+
+    expect(await screen.findByRole('heading', { name: 'Night result load 2' })).toBeInTheDocument()
+    expect(pageTwoSearches).toBe(2)
+    expect(detailLoads).toBe(3)
+  })
+
+  it('does not search a Published artwork route even when its URL has query parameters', async () => {
+    const publishedItem = curatedItem('Published artwork', 1)
+    const fetchMock = vi.fn().mockImplementation((path: string) => {
+      if (path === '/api/exhibitions/1') {
+        return Promise.resolve(respond(detail({
+          status: 'PUBLISHED',
+          publishedAt: '2026-08-04T09:00:00Z',
+          items: [publishedItem],
+          coverArtworkId: publishedItem.artwork.id,
+        })))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks?q=portrait&page=2')
+
+    expect(await screen.findByRole('heading', { name: 'Review published artworks' })).toBeInTheDocument()
+    expect(window.location.search).toBe('?q=portrait&page=2')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.some(([path]) => String(path).startsWith('/api/museum/artworks'))).toBe(false)
+  })
+
+  it('discards an in-flight search when the exhibition ID changes', async () => {
+    let searchSignal: AbortSignal | undefined
+    let resolveSearch: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string, options?: RequestInit) => {
+      if (path === '/api/exhibitions/1') {
+        return Promise.resolve(respond(detail({ id: 1, title: 'First exhibition' })))
+      }
+      if (path === '/api/exhibitions/2') {
+        return Promise.resolve(respond(detail({ id: 2, title: 'Second exhibition' })))
+      }
+      if (String(path).startsWith('/api/museum/artworks')) {
+        searchSignal = options?.signal as AbortSignal
+        return new Promise<Response>((resolve) => { resolveSearch = resolve })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks?q=night')
+
+    await waitFor(() => expect(searchSignal).toBeDefined())
+    await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
+    expect(await screen.findByText('Second exhibition')).toBeInTheDocument()
+    expect(searchSignal?.aborted).toBe(true)
+    resolveSearch?.(respond(searchPage([searchArtwork({ title: 'Stale first-exhibition result' })])))
+    await act(async () => {})
+
+    expect(screen.queryByRole('heading', { name: 'Stale first-exhibition result' })).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/2/artworks')
+    expect(window.location.search).toBe('')
   })
 
   it('searches through Curatium and renders museum results', async () => {
@@ -278,13 +472,12 @@ describe('museum artwork search and add flow', () => {
 
   it('cancels a stale search and renders only the latest results', async () => {
     let firstSignal: AbortSignal | undefined
+    let resolveFirstSearch: ((response: Response) => void) | undefined
     const fetchMock = vi.fn((path: string, options?: RequestInit) => {
       if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
       if (path.includes('q=night')) {
         firstSignal = options?.signal as AbortSignal
-        return new Promise<Response>((_, reject) => {
-          firstSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-        })
+        return new Promise<Response>((resolve) => { resolveFirstSearch = resolve })
       }
       if (path.includes('q=moon')) return Promise.resolve(respond(searchPage([searchArtwork({ title: 'Moonlight' })])))
       throw new Error(`Unexpected request: ${path}`)
@@ -300,8 +493,9 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: /Search/ }))
 
     expect(firstSignal?.aborted).toBe(true)
+    resolveFirstSearch?.(respond(searchPage([searchArtwork({ title: 'Stale night result' })])))
     expect(await screen.findByRole('heading', { name: 'Moonlight' })).toBeInTheDocument()
-    expect(screen.queryByText('Nocturne')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Stale night result' })).not.toBeInTheDocument()
   })
 
   it('shows a provider failure and retries the same search', async () => {
@@ -321,15 +515,11 @@ describe('museum artwork search and add flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
-  it('keeps preserved results paired with their committed query after another query fails', async () => {
+  it('clears the old catalogue and pagination when a replacement query fails', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail()))
       .mockResolvedValueOnce(respond(searchPage(undefined, { hasNextPage: true })))
       .mockResolvedValueOnce(respond(error('MUSEUM_SERVICE_UNAVAILABLE', 'Unavailable.', 503), 503))
-      .mockResolvedValueOnce(respond(searchPage(
-        [searchArtwork({ title: 'Night on page two' })],
-        { page: 2 },
-      )))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
@@ -341,14 +531,71 @@ describe('museum artwork search and add flow', () => {
     await userEvent.type(query, 'moon')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     await screen.findByText('The museum service is temporarily unavailable.')
-    await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
 
-    expect(await screen.findByRole('heading', { name: 'Night on page two' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      '/api/museum/artworks?q=night&page=2&size=20',
-      expect.any(Object),
-    )
+    expect(window.location.search).toBe('?q=moon')
+    expect(screen.queryByRole('heading', { name: 'Nocturne' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Search result pages' })).not.toBeInTheDocument()
+  })
+
+  it('hides an old catalogue until the current URL query succeeds', async () => {
+    let resolveMoonSearch: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      if (path.includes('q=night')) return Promise.resolve(respond(searchPage([searchArtwork({ title: 'Night catalogue' })])))
+      if (path.includes('q=moon')) {
+        return new Promise<Response>((resolve) => { resolveMoonSearch = resolve })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const query = await loadSearchPage()
+    await userEvent.type(query, 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Night catalogue' })
+    await userEvent.clear(query)
+    await userEvent.type(query, 'moon')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await waitFor(() => expect(resolveMoonSearch).toBeDefined())
+
+    expect(window.location.search).toBe('?q=moon')
+    expect(screen.queryByRole('heading', { name: 'Night catalogue' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Search result pages' })).not.toBeInTheDocument()
+
+    resolveMoonSearch?.(respond(searchPage([searchArtwork({ title: 'Moon catalogue' })])))
+
+    expect(await screen.findByRole('heading', { name: 'Moon catalogue' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Night catalogue' })).not.toBeInTheDocument()
+  })
+
+  it('clears page-one results and pagination while page two loads', async () => {
+    let resolvePageTwo: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(detail()))
+      if (path.includes('q=night&page=1')) {
+        return Promise.resolve(respond(searchPage([searchArtwork({ title: 'Page one catalogue' })], { hasNextPage: true })))
+      }
+      if (path.includes('q=night&page=2')) {
+        return new Promise<Response>((resolve) => { resolvePageTwo = resolve })
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.type(await loadSearchPage(), 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Page one catalogue' })
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    await waitFor(() => expect(resolvePageTwo).toBeDefined())
+
+    expect(window.location.search).toBe('?q=night&page=2')
+    expect(screen.queryByRole('heading', { name: 'Page one catalogue' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Search result pages' })).not.toBeInTheDocument()
+
+    resolvePageTwo?.(respond(searchPage([searchArtwork({ title: 'Page two catalogue' })], { page: 2 })))
+    expect(await screen.findByRole('heading', { name: 'Page two catalogue' })).toBeInTheDocument()
   })
 
   it('adds an artwork using only source and external ID, retaining search results', async () => {
@@ -702,6 +949,47 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
 
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps dirty notes through same-route search state while protecting the Preview exit', async () => {
+    const first = curatedItem('Artwork with draft', 1, 'Committed note')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first] })))
+      .mockResolvedValueOnce(respond(searchPage(
+        [searchArtwork({ title: 'Search page one' })],
+        { hasNextPage: true },
+      )))
+      .mockResolvedValueOnce(respond(searchPage(
+        [searchArtwork({ title: 'Search page two' })],
+        { page: 2 },
+      )))
+      .mockResolvedValueOnce(respond(detail({ items: [first] })))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const note = await screen.findByLabelText('Curatorial note for artwork 1 of 1: Artwork with draft')
+    await userEvent.clear(note)
+    await userEvent.type(note, 'Unsaved note survives URL updates')
+    await userEvent.type(screen.getByLabelText('Search terms'), 'night')
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByRole('heading', { name: 'Search page one' })).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(note).toHaveValue('Unsaved note survives URL updates')
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByRole('heading', { name: 'Search page two' })).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(note).toHaveValue('Unsaved note survives URL updates')
+
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/exhibitions/1/artworks')
+    expect(window.location.search).toBe('?q=night&page=2')
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+
+    const artworkLink = await screen.findByRole('link', { name: 'Artworks' })
+    expect(artworkLink).toHaveAttribute('href', '/exhibitions/1/artworks?q=night&page=2')
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
