@@ -36,6 +36,17 @@ describe('route screens', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/exhibitions', expect.any(Object))
   })
 
+  it('uses status-aware curator card actions without changing destinations', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond([
+      summary('Draft exhibition', 'DRAFT'),
+      { ...summary('Published exhibition', 'PUBLISHED'), id: 2 },
+    ])))
+    renderAt('/exhibitions')
+
+    expect(await screen.findByRole('link', { name: 'Edit exhibition' })).toHaveAttribute('href', '/exhibitions/1/edit')
+    expect(screen.getByRole('link', { name: 'Manage exhibition' })).toHaveAttribute('href', '/exhibitions/2/edit')
+  })
+
   it('shows the curator empty state', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond([])))
     renderAt('/exhibitions')

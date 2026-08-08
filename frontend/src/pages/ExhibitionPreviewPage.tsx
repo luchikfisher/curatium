@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArtworkImage } from '../components/ArtworkImage'
 import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
+import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibitionContext'
+import { readArtworkSearchReturnTarget } from '../features/exhibitions/artworkSearchNavigation'
+import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 
@@ -16,6 +19,7 @@ export function ExhibitionPreviewPage() {
 }
 
 function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
+  const location = useLocation()
   const { data: exhibition, error, retry, replace } = useExhibition(exhibitionId, getExhibition)
   const mutationController = useRef<AbortController | null>(null)
   const mutationInFlight = useRef(false)
@@ -110,6 +114,8 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
     : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
   const isPublished = exhibition.status === 'PUBLISHED'
   const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
+  const artworkSearchReturnTarget = readArtworkSearchReturnTarget(location.state, exhibitionId)
+  const artworksDestination = artworkSearchReturnTarget ?? `/exhibitions/${exhibitionId}/artworks`
 
   return (
     <section className="exhibition-preview">
@@ -121,10 +127,11 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         <h1>{exhibition.title}</h1>
         {exhibition.summary ? <p className="lede">{exhibition.summary}</p> : <p className="lede preview-empty-copy">No summary has been provided.</p>}
       </div>
-      <nav className="editor-links" aria-label="Preview actions">
-        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/edit`}>{isPublished ? 'View metadata' : 'Edit metadata'}</Link>
-        <Link className="button button-secondary" to={`/exhibitions/${exhibition.id}/artworks`}>{isPublished ? 'View artworks' : 'Curate artworks'}</Link>
-      </nav>
+      <CuratorExhibitionContext
+        exhibition={exhibition}
+        activeStep="preview"
+        artworksDestination={artworksDestination}
+      />
       <LazyExhibitionGallery
         exhibition={exhibition}
         fallback={<p className="virtual-gallery__fallback">The standard curator preview is shown below.</p>}
@@ -149,6 +156,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           mutation={publicationMutation}
           error={reconciledUnpublishDraft ? null : publicationError}
           success={publicationSuccess}
+          artworksDestination={artworksDestination}
           onTransition={transitionPublication}
           onClearFeedback={clearPublicationFeedback}
         />
@@ -183,6 +191,7 @@ function PublicationControls({
   mutation,
   error,
   success,
+  artworksDestination,
   onTransition,
   onClearFeedback,
 }: {
@@ -191,6 +200,7 @@ function PublicationControls({
   mutation: 'publish' | 'unpublish' | null
   error: Error | null
   success: string | null
+  artworksDestination: string
   onTransition: (action: 'publish' | 'unpublish') => Promise<boolean>
   onClearFeedback: () => void
 }) {
@@ -203,10 +213,31 @@ function PublicationControls({
   const isPublishing = mutation === 'publish'
   const isUnpublishing = mutation === 'unpublish'
   const prerequisites = [
-    { label: 'A title', met: exhibition.title.trim().length > 0 },
-    { label: 'At least one artwork', met: exhibition.items.length > 0 },
-    { label: 'A cover selected from an included artwork', met: coverItem !== null },
+    {
+      id: 'title',
+      label: 'A nonblank title',
+      met: exhibition.title.trim().length > 0,
+      action: 'Edit metadata',
+      to: `/exhibitions/${exhibition.id}/edit`,
+    },
+    {
+      id: 'artwork',
+      label: 'At least one artwork',
+      met: exhibition.items.length > 0,
+      action: 'Curate artworks',
+      to: artworksDestination,
+    },
+    {
+      id: 'cover',
+      label: exhibition.items.length === 0
+        ? 'Add an artwork before choosing a cover'
+        : 'A cover selected from the current artworks',
+      met: coverItem !== null,
+      action: exhibition.items.length === 0 ? null : 'Choose a cover',
+      to: artworksDestination,
+    },
   ]
+  const isReadyToPublish = prerequisites.every((prerequisite) => prerequisite.met)
 
   useEffect(() => {
     if (confirmingUnpublish) cancelUnpublishRef.current?.focus({ preventScroll: true })
@@ -252,19 +283,38 @@ function PublicationControls({
   return (
     <div className="preview-publication__controls">
       <h3>Publication controls</h3>
-      <p>{isPublished
-        ? 'Published exhibitions are read-only. Unpublish to restore metadata and artwork curation.'
-        : 'Publishing requires all of the following. Curatium verifies the current server state when you publish.'}
-      </p>
-      <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
-        {prerequisites.map((prerequisite) => (
-          <li key={prerequisite.label}>
-            <strong>{prerequisite.met ? 'Ready' : 'Required'}:</strong> {prerequisite.label}
-          </li>
-        ))}
-      </ul>
+      {isPublished ? (
+        <p>Published exhibitions are read-only. Unpublish to restore metadata and artwork curation.</p>
+      ) : (
+        <>
+          <p id="publication-readiness-explanation">
+            {isReadyToPublish
+              ? 'This exhibition is ready to publish. Curatium will verify the current server state when you publish.'
+              : 'Publish is unavailable until every required item below is ready.'}
+          </p>
+          <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
+            {prerequisites.map((prerequisite) => (
+              <li key={prerequisite.id}>
+                <strong>{prerequisite.met ? 'Ready' : 'Required'}:</strong> {prerequisite.label}
+                {!prerequisite.met && prerequisite.action && (
+                  <> — <Link className="text-link" to={prerequisite.to}>{prerequisite.action}</Link></>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {error && <PublicationError error={error} />}
       {success && <p ref={successRef} className="form-success" role="status" tabIndex={-1}>{success}</p>}
+      {isPublished && (
+        <Link
+          className="button button-secondary preview-publication__public-link"
+          to={`/visit/${exhibition.id}`}
+          state={createCuratorVisitState(exhibition.id)}
+        >
+          View public exhibition
+        </Link>
+      )}
       {isPublished && confirmingUnpublish ? (
         <div
           className="unpublish-confirmation"
@@ -303,11 +353,11 @@ function PublicationControls({
           ref={isPublished ? unpublishTriggerRef : undefined}
           className="button"
           type="button"
-          disabled={mutation !== null}
-          aria-describedby={isPublished ? undefined : 'publication-prerequisites'}
+          disabled={mutation !== null || (!isPublished && !isReadyToPublish)}
+          aria-describedby={isPublished ? undefined : 'publication-readiness-explanation publication-prerequisites'}
           onClick={() => {
             if (isPublished) requestUnpublish()
-            else void onTransition('publish')
+            else if (isReadyToPublish) void onTransition('publish')
           }}
         >
           {isPublishing ? 'Publishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}

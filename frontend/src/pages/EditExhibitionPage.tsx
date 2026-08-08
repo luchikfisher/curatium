@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import {
@@ -14,6 +14,10 @@ import { applyMetadataRequestError } from '../features/exhibitions/formErrors'
 import {
   DirtyNavigationConfirmation,
 } from '../features/exhibitions/DirtyNavigationGuard'
+import {
+  CuratorExhibitionContext,
+  CuratorNextStep,
+} from '../features/exhibitions/CuratorExhibitionContext'
 import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import type { MetadataFieldErrors } from '../features/exhibitions/metadataValidation'
 import { useExhibition } from '../features/exhibitions/useExhibition'
@@ -30,6 +34,7 @@ export function EditExhibitionPage() {
 
 function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { data: exhibition, error: loadError, retry, replace } = useExhibition(exhibitionId, getExhibition)
   const [metadata, setMetadata] = useState(emptyMetadata)
   const [committedBaseline, setCommittedBaseline] = useState(emptyMetadata)
@@ -37,6 +42,9 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const [fieldErrors, setFieldErrors] = useState<MetadataFieldErrors>({})
   const [error, setError] = useState<FrontendError | Error | null>(null)
   const [successMessage, setSuccessMessage] = useState('')
+  const [showCreatedNextStep, setShowCreatedNextStep] = useState(
+    () => isCreatedNavigation(location.state, exhibitionId),
+  )
   const [readOnly, setReadOnly] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [updating, setUpdating] = useState(false)
@@ -62,6 +70,10 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     requestController.current?.abort()
     reconciliationController.current?.abort()
   }, [])
+  useEffect(() => {
+    if (!loadedExhibition || !isCreatedNavigation(location.state, exhibitionId)) return
+    navigate(location.pathname, { replace: true, state: null })
+  }, [exhibitionId, loadedExhibition, location.pathname, location.state, navigate])
   useEffect(() => {
     if (confirmingDelete) {
       confirmDeleteButtonRef.current?.focus()
@@ -91,6 +103,7 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     setFieldErrors((current) => ({ ...current, [field]: undefined }))
     setError(null)
     setSuccessMessage('')
+    setShowCreatedNextStep(false)
   }
 
   async function reconcilePublishedConflict() {
@@ -108,6 +121,7 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     setError(null)
     setFieldErrors({})
     setSuccessMessage('')
+    setShowCreatedNextStep(false)
     try {
       const committedExhibition = await getExhibition(currentExhibitionId, controller.signal)
       if (controller.signal.aborted || reconciliationController.current !== controller) return
@@ -146,11 +160,13 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
       const updated = await updateExhibition(currentExhibitionId, formMetadata, controller.signal)
       if (!controller.signal.aborted) {
         const committedMetadata = metadataFromExhibition(updated)
+        replace(updated)
         setCommittedBaseline(committedMetadata)
         setMetadata(committedMetadata)
         setLoadedId(updated.id)
         setReadOnly(updated.status === 'PUBLISHED')
         setSuccessMessage('Metadata saved.')
+        setShowCreatedNextStep(false)
       }
     } catch (reason) {
       if (!controller.signal.aborted && !(await handleReadOnlyError(reason))) {
@@ -194,10 +210,14 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
         <h1>Edit exhibition</h1>
         <p className="lede">Refine the exhibition story before selecting its artworks.</p>
       </div>
-      <nav className="editor-links" aria-label="Exhibition actions">
-        <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/artworks`}>Curate artworks</Link>
-        <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/preview`}>Preview exhibition</Link>
-      </nav>
+      <CuratorExhibitionContext exhibition={currentExhibition} activeStep="metadata" />
+      {showCreatedNextStep && (
+        <CuratorNextStep
+          message="Exhibition created."
+          to={`/exhibitions/${currentExhibition.id}/artworks`}
+          label="Continue to artworks"
+        />
+      )}
       <section ref={authoringRegionRef} className="editor-section" aria-labelledby="metadata-heading">
         <h2 id="metadata-heading">Exhibition metadata</h2>
         <AuthoritativeReconciliationNotice
@@ -211,7 +231,13 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
           </p>
         )}
         <RequestError error={error} />
-        {successMessage && <p className="form-success" role="status">{successMessage}</p>}
+        {successMessage && (
+          <CuratorNextStep
+            message={successMessage}
+            to={`/exhibitions/${currentExhibition.id}/artworks`}
+            label="Continue to artworks"
+          />
+        )}
         <ExhibitionMetadataForm
           metadata={formMetadata}
           fieldErrors={fieldErrors}
@@ -247,6 +273,13 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
       <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
   )
+}
+
+function isCreatedNavigation(state: unknown, exhibitionId: number): boolean {
+  return typeof state === 'object'
+    && state !== null
+    && 'createdExhibitionId' in state
+    && state.createdExhibitionId === exhibitionId
 }
 
 function metadataFromExhibition(exhibition: {

@@ -56,7 +56,7 @@ export function NewExhibitionPage() {
         setMetadata(committedMetadata)
         const destination = `/exhibitions/${exhibition.id}/edit`
         dirtyNavigation.allowNextNavigation(destination)
-        navigate(destination)
+        navigate(destination, { state: { createdExhibitionId: exhibition.id } })
       }
     } catch (reason) {
       if (!controller.signal.aborted) applyMetadataRequestError(reason, setFieldErrors, setError)

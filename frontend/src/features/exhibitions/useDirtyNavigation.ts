@@ -20,7 +20,10 @@ export interface DirtyNavigationController {
   stay: () => void
 }
 
-export function useDirtyNavigation(isDirty: boolean): DirtyNavigationController {
+export function useDirtyNavigation(
+  isDirty: boolean,
+  { allowSearchChangesOnSamePath = false }: { allowSearchChangesOnSamePath?: boolean } = {},
+): DirtyNavigationController {
   const navigate = useNavigate()
   const allowedDestinationRef = useRef<string | null>(null)
   const retainedTransitionRef = useRef<RetainedTransition | null>(null)
@@ -45,6 +48,10 @@ export function useDirtyNavigation(isDirty: boolean): DirtyNavigationController 
       return false
     }
 
+    const changesOnlySearch = currentLocation.pathname === nextLocation.pathname
+      && currentLocation.hash === nextLocation.hash
+    if (allowSearchChangesOnSamePath && changesOnlySearch) return false
+
     const changesRoute = locationDestination(currentLocation) !== nextDestination
     if (!changesRoute || !isDirty) return false
 
@@ -55,7 +62,7 @@ export function useDirtyNavigation(isDirty: boolean): DirtyNavigationController 
       }
     }
     return true
-  }, [isDirty, locationDestination])
+  }, [allowSearchChangesOnSamePath, isDirty, locationDestination])
 
   const blocker = useBlocker(shouldBlock)
 

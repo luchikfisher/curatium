@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { EmptyState, LoadingState } from '../components/AsyncState'
 import { ArtworkImage } from '../components/ArtworkImage'
@@ -10,6 +10,15 @@ import {
 import {
   DirtyNavigationConfirmation,
 } from '../features/exhibitions/DirtyNavigationGuard'
+import {
+  CuratorExhibitionContext,
+  CuratorNextStep,
+} from '../features/exhibitions/CuratorExhibitionContext'
+import {
+  createArtworkSearchReturnState,
+  createArtworkSearchString,
+  parseArtworkSearchUrl,
+} from '../features/exhibitions/artworkSearchNavigation'
 import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import {
   addExhibitionArtwork,
@@ -56,6 +65,8 @@ export function ArtworkSearchPage() {
 }
 
 function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const { data: exhibition, error: loadError, retry: retryLoad, replace } = useExhibition(exhibitionId, getExhibition)
   const [query, setQuery] = useState('')
   const [queryError, setQueryError] = useState('')
@@ -91,9 +102,57 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const confirmRemovalButtonRef = useRef<HTMLButtonElement | null>(null)
   const removeButtonRefs = useRef(new Map<number, HTMLButtonElement>())
   const restoreRemovalFocus = useRef<number | null>(null)
+  const searchUrlState = parseArtworkSearchUrl(location.search)
+  const currentArtworkDestination = `/exhibitions/${exhibitionId}/artworks${searchUrlState.canonicalSearch}`
+  const previewReturnState = createArtworkSearchReturnState(
+    exhibitionId,
+    searchUrlState.query,
+    searchUrlState.page,
+  )
+  const visibleResults = activeQuery === searchUrlState.query && results?.page === searchUrlState.page
+    ? results
+    : null
   const dirtyNavigation = useDirtyNavigation(
     Object.values(noteDrafts).some((draft) => draft.value !== draft.baseline),
+    { allowSearchChangesOnSamePath: true },
   )
+
+  const runSearch = useCallback(async (normalizedQuery: string, page: number) => {
+    searchController.current?.abort()
+    const controller = new AbortController()
+    const request = searchRequest.current + 1
+    searchRequest.current = request
+    searchController.current = controller
+    lastSearch.current = { query: normalizedQuery, page }
+    setSearching(true)
+    setSearchError(null)
+    setQueryError('')
+    try {
+      const pageResult = await searchMuseumArtworks(
+        normalizedQuery,
+        page,
+        SEARCH_PAGE_SIZE,
+        controller.signal,
+      )
+      if (!controller.signal.aborted && request === searchRequest.current) {
+        setResults(pageResult)
+        setActiveQuery(normalizedQuery)
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted && request === searchRequest.current) {
+        const error = reason instanceof Error ? reason : new Error('Unknown error')
+        if (isFrontendError(error)) {
+          const fieldError = error.fieldErrors.find((candidate) => candidate.field === 'q')
+          if (fieldError) setQueryError(fieldError.message)
+        }
+        setSearchError(error)
+      }
+    } finally {
+      if (!controller.signal.aborted && request === searchRequest.current) {
+        setSearching(false)
+      }
+    }
+  }, [])
 
   useEffect(() => () => {
     searchController.current?.abort()
@@ -102,6 +161,66 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     coverMutationController.current?.abort()
     reconciliationController.current?.abort()
   }, [])
+  useEffect(() => {
+    searchController.current?.abort()
+    searchController.current = null
+    searchRequest.current += 1
+    lastSearch.current = null
+    const timer = window.setTimeout(() => {
+      setQuery(searchUrlState.query)
+      setQueryError('')
+      setSearchError(null)
+      setResults(null)
+      setActiveQuery('')
+      setSearching(false)
+
+      if (location.search !== searchUrlState.canonicalSearch) {
+        navigate(
+          {
+            pathname: location.pathname,
+            search: searchUrlState.canonicalSearch,
+            hash: location.hash,
+          },
+          { replace: true, state: location.state },
+        )
+      }
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    location.hash,
+    location.pathname,
+    location.search,
+    location.state,
+    navigate,
+    searchUrlState.canonicalSearch,
+    searchUrlState.query,
+  ])
+  useEffect(() => {
+    const loadedStatus = exhibition?.id === exhibitionId ? exhibition.status : null
+    if (
+      location.search !== searchUrlState.canonicalSearch
+      || loadedStatus !== 'DRAFT'
+      || !searchUrlState.searchable
+    ) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setQuery(searchUrlState.query)
+      runSearch(searchUrlState.query, searchUrlState.page)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    exhibition?.id,
+    exhibition?.status,
+    exhibitionId,
+    location.search,
+    runSearch,
+    searchUrlState.canonicalSearch,
+    searchUrlState.page,
+    searchUrlState.query,
+    searchUrlState.searchable,
+  ])
   useEffect(() => {
     if (removingItemId !== null) {
       confirmRemovalButtonRef.current?.focus()
@@ -142,6 +261,9 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     : currentExhibition.items.find((item) => item.artwork.id === currentExhibition.coverArtworkId) ?? null
 
   function replaceExhibition(nextExhibition: ExhibitionDetail) {
+    if (nextExhibition.coverArtworkId !== currentExhibition.coverArtworkId) {
+      setCoverSuccess('')
+    }
     const retainedItemIds = new Set(nextExhibition.items.map((item) => item.id))
     setNoteDrafts((current) => {
       const retained = Object.fromEntries(
@@ -153,6 +275,18 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   function replaceAuthoritativeExhibition(nextExhibition: ExhibitionDetail) {
+    if (nextExhibition.status === 'PUBLISHED') {
+      searchController.current?.abort()
+      searchController.current = null
+      searchRequest.current += 1
+      lastSearch.current = null
+      setQuery('')
+      setQueryError('')
+      setResults(null)
+      setActiveQuery('')
+      setSearchError(null)
+      setSearching(false)
+    }
     replace(nextExhibition)
     setNoteDrafts({})
     setNoteErrors({})
@@ -210,46 +344,21 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     startSearch(normalizedQuery, 1)
   }
 
-  async function startSearch(normalizedQuery: string, page: number) {
-    searchController.current?.abort()
-    const controller = new AbortController()
-    const request = searchRequest.current + 1
-    searchRequest.current = request
-    searchController.current = controller
-    lastSearch.current = { query: normalizedQuery, page }
-    setSearching(true)
-    setSearchError(null)
-    setQueryError('')
-    try {
-      const pageResult = await searchMuseumArtworks(
-        normalizedQuery,
-        page,
-        SEARCH_PAGE_SIZE,
-        controller.signal,
-      )
-      if (!controller.signal.aborted && request === searchRequest.current) {
-        setResults(pageResult)
-        setActiveQuery(normalizedQuery)
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted && request === searchRequest.current) {
-        const error = reason instanceof Error ? reason : new Error('Unknown error')
-        if (isFrontendError(error)) {
-          const fieldError = error.fieldErrors.find((candidate) => candidate.field === 'q')
-          if (fieldError) setQueryError(fieldError.message)
-        }
-        setSearchError(error)
-      }
-    } finally {
-      if (!controller.signal.aborted && request === searchRequest.current) {
-        setSearching(false)
-      }
+  function startSearch(normalizedQuery: string, page: number) {
+    const nextSearch = createArtworkSearchString(normalizedQuery, page)
+    if (nextSearch === location.search) {
+      runSearch(normalizedQuery, page)
+      return
     }
+    navigate(
+      { pathname: location.pathname, search: nextSearch, hash: location.hash },
+      { state: location.state },
+    )
   }
 
   function retrySearch() {
     const previousSearch = lastSearch.current
-    if (previousSearch) startSearch(previousSearch.query, previousSearch.page)
+    if (previousSearch) runSearch(previousSearch.query, previousSearch.page)
   }
 
   async function addArtwork(artwork: MuseumArtworkSearchResult) {
@@ -576,6 +685,33 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     }
   }
 
+  if (currentExhibition.status === 'PUBLISHED') {
+    return (
+      <section ref={authoringRegionRef} className="artwork-search-page artwork-review-page">
+        <div className="page-heading editor-heading">
+          <p className="eyebrow">Curator workspace</p>
+          <h1>Review published artworks</h1>
+          <p className="lede">Review the committed artwork sequence for {currentExhibition.title}.</p>
+        </div>
+        <CuratorExhibitionContext
+          exhibition={currentExhibition}
+          activeStep="artworks"
+          artworksDestination={currentArtworkDestination}
+          previewState={previewReturnState}
+        />
+        <AuthoritativeReconciliationNotice
+          phase={reconciliationPhase}
+          onRetry={reconcilePublishedConflict}
+          initialFocusOriginRef={reconciliationFocusOrigin}
+        />
+        <PublishedArtworkReview
+          exhibition={currentExhibition}
+          previewState={previewReturnState}
+        />
+      </section>
+    )
+  }
+
   return (
     <section ref={authoringRegionRef} className="artwork-search-page">
       <div className="page-heading editor-heading">
@@ -583,10 +719,12 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         <h1>Add artworks</h1>
         <p className="lede">Search the collection and add public-domain works to {currentExhibition.title}.</p>
       </div>
-      <nav className="editor-links" aria-label="Exhibition actions">
-        <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/edit`}>Back to exhibition</Link>
-        <Link className="button button-secondary" to={`/exhibitions/${currentExhibition.id}/preview`}>Preview exhibition</Link>
-      </nav>
+      <CuratorExhibitionContext
+        exhibition={currentExhibition}
+        activeStep="artworks"
+        artworksDestination={currentArtworkDestination}
+        previewState={previewReturnState}
+      />
       <AuthoritativeReconciliationNotice
         phase={reconciliationPhase}
         onRetry={reconcilePublishedConflict}
@@ -619,7 +757,16 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           <p className="section-copy">No cover selected. Choose an artwork below to use as the exhibition cover.</p>
         )}
         {coverError && <p className="form-alert" role="alert">{coverError}</p>}
-        {coverSuccess && <p className="form-success" role="status">{coverSuccess}</p>}
+        {coverSuccess === 'Cover updated.' ? (
+          <CuratorNextStep
+            message={coverSuccess}
+            to={`/exhibitions/${currentExhibition.id}/preview`}
+            label="Continue to preview & publish"
+            state={previewReturnState}
+          />
+        ) : coverSuccess ? (
+          <p className="form-success" role="status">{coverSuccess}</p>
+        ) : null}
       </section>
       <section className="artwork-search-section" aria-labelledby="current-artworks-heading">
         <h2 id="current-artworks-heading">Current artworks ({currentExhibition.items.length}/10)</h2>
@@ -687,8 +834,8 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         </form>
         {searchError && <SearchError error={searchError} onRetry={retrySearch} />}
         <SearchContent
-          results={results}
-          activeQuery={activeQuery}
+          results={visibleResults}
+          activeQuery={visibleResults ? activeQuery : ''}
           searching={searching}
           onPageChange={startSearch}
           onAdd={addArtwork}
@@ -705,6 +852,98 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       </section>
       <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
+  )
+}
+
+function PublishedArtworkReview({
+  exhibition,
+  previewState,
+}: {
+  exhibition: ExhibitionDetail
+  previewState?: unknown
+}) {
+  const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
+
+  return (
+    <section className="artwork-search-section published-artwork-review" aria-labelledby="published-artwork-review-heading">
+      <h2 id="published-artwork-review-heading">Published artworks ({orderedItems.length})</h2>
+      <p className="section-copy">
+        This exhibition is published and read-only. Return to the preview and unpublish it before editing its artworks.
+      </p>
+      <Link
+        className="button button-secondary published-artwork-review__return"
+        to={`/exhibitions/${exhibition.id}/preview`}
+        state={previewState}
+      >
+        Return to preview to unpublish
+      </Link>
+      {orderedItems.length === 0 ? (
+        <p className="section-copy published-artwork-review__empty">No artworks are present in the committed exhibition.</p>
+      ) : (
+        <ol className="published-artwork-list" aria-label="Published exhibition artworks">
+          {orderedItems.map((item) => (
+            <PublishedArtworkSummary
+              key={item.id}
+              item={item}
+              itemCount={orderedItems.length}
+              isCover={item.artwork.id === exhibition.coverArtworkId}
+            />
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
+function PublishedArtworkSummary({
+  item,
+  itemCount,
+  isCover,
+}: {
+  item: ExhibitionItem
+  itemCount: number
+  isCover: boolean
+}) {
+  const note = item.curatorialNote?.trim() ?? ''
+  const sourceLabel = item.artwork.source === 'CLEVELAND_MUSEUM_OF_ART'
+    ? 'Cleveland Museum of Art'
+    : 'Art Institute of Chicago'
+
+  return (
+    <li className="published-artwork-summary">
+      <article aria-labelledby={`published-artwork-${item.id}-title`}>
+        <div className="published-artwork-summary__heading">
+          <ArtworkImage
+            src={item.artwork.thumbnailUrl}
+            alt={`Thumbnail of ${item.artwork.title}`}
+            className="published-artwork-summary__image"
+          />
+          <div>
+            <p className="current-artwork-item__position">Artwork {item.position} of {itemCount}</p>
+            <h3 id={`published-artwork-${item.id}-title`}>{item.artwork.title}</h3>
+            <p>{item.artwork.artistDisplay || 'Artist unknown'}</p>
+            {isCover && <p className="published-artwork-summary__cover">Current cover artwork</p>}
+          </div>
+        </div>
+        <dl className="published-artwork-summary__metadata">
+          {item.artwork.dateDisplay && <div><dt>Date</dt><dd>{item.artwork.dateDisplay}</dd></div>}
+          <div><dt>Source</dt><dd>{sourceLabel}</dd></div>
+          <div><dt>Accession or record</dt><dd>{item.artwork.externalId}</dd></div>
+          {item.artwork.creditLine && <div><dt>Credit line</dt><dd>{item.artwork.creditLine}</dd></div>}
+        </dl>
+        {note && (
+          <section className="published-artwork-summary__note" aria-labelledby={`published-artwork-${item.id}-note`}>
+            <h4 id={`published-artwork-${item.id}-note`}>Curatorial note</h4>
+            <p>{item.curatorialNote}</p>
+          </section>
+        )}
+        {item.artwork.sourceUrl && (
+          <a className="text-link published-artwork-summary__source" href={item.artwork.sourceUrl} target="_blank" rel="noreferrer">
+            View artwork source
+          </a>
+        )}
+      </article>
+    </li>
   )
 }
 

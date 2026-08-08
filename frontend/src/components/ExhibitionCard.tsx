@@ -41,7 +41,9 @@ export function ExhibitionCard({
           )}
         </div>
         <Link className="text-link" to={destination}>
-          {curator ? 'Edit exhibition' : 'Enter exhibition'}
+          {curator
+            ? exhibition.status === 'PUBLISHED' ? 'Manage exhibition' : 'Edit exhibition'
+            : 'Enter exhibition'}
           <span aria-hidden="true"> →</span>
         </Link>
       </div>

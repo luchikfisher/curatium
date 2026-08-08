@@ -1,7 +1,8 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { appRouter } from './router'
 import * as webgl from './features/virtual-gallery/webgl'
 
 function artwork(overrides: Record<string, unknown> = {}) {
@@ -49,10 +50,34 @@ function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
-function renderAt(path: string) {
-  window.history.pushState({}, '', path)
+function renderAt(path: string, state?: unknown) {
+  window.history.pushState(state === undefined ? {} : {
+    usr: state,
+    key: 'public-test',
+    idx: window.history.state?.idx ?? 0,
+  }, '', path)
   window.dispatchEvent(new PopStateEvent('popstate'))
   return render(<App />)
+}
+
+function curatorDetail(overrides: Record<string, unknown> = {}) {
+  const publicDetail = detail(overrides)
+  return {
+    ...publicDetail,
+    status: 'PUBLISHED',
+    createdAt: '2026-07-18T12:00:00Z',
+    updatedAt: '2026-07-22T14:30:00Z',
+    items: publicDetail.items.map((entry) => ({
+      ...entry,
+      artwork: {
+        ...entry.artwork,
+        source: 'ART_INSTITUTE_OF_CHICAGO',
+        externalId: String(entry.artwork.id),
+        thumbnailUrl: entry.artwork.imageUrl,
+        publicDomain: true,
+      },
+    })),
+  }
 }
 
 afterEach(() => {
@@ -88,6 +113,126 @@ describe('public exhibition view', () => {
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/public/exhibitions/1', expect.any(Object))
     expect(fetchMock).not.toHaveBeenCalledWith('/api/exhibitions/1', expect.anything())
+    expect(screen.queryByRole('link', { name: 'Return to curator preview' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Exit to exhibitions' })[0]).toHaveAttribute('href', '/')
+  })
+
+  it('returns a curator-origin visit to the matching preview and consumes the route state', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/public/exhibitions/1') return Promise.resolve(respond(detail()))
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(curatorDetail()))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/visit/1', {
+      curatorExhibitionId: 1,
+      curatorReturnTo: '/exhibitions/1/preview',
+    })
+
+    const curatorReturn = (await screen.findAllByRole('link', { name: 'Return to curator preview' }))[0]
+    expect(curatorReturn).toHaveAttribute('href', '/exhibitions/1/preview')
+    expect(screen.getAllByRole('link', { name: 'Exit to exhibitions' })[0]).toHaveAttribute('href', '/')
+    await waitFor(() => expect(window.history.state?.usr).toBeNull())
+    await userEvent.click(curatorReturn)
+
+    expect(window.location.pathname).toBe('/exhibitions/1/preview')
+    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+  })
+
+  it('consumes valid curator state immediately while the public request is still pending', async () => {
+    const fetchMock = vi.fn((_path: string, options?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/visit/1', {
+      curatorExhibitionId: 1,
+      curatorReturnTo: '/exhibitions/1/preview',
+    })
+
+    expect(await screen.findByText('Loading exhibition…')).toBeInTheDocument()
+    await waitFor(() => expect(window.history.state?.usr).toBeNull())
+    expect(screen.queryByRole('link', { name: 'Return to curator preview' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['failed', respond(error('SERVICE_UNAVAILABLE', 'Public exhibition unavailable.', 503), 503), 'We could not load this exhibition'],
+    ['not-found', respond(error('EXHIBITION_NOT_FOUND', 'No exhibition found.', 404), 404), 'Exhibition not found'],
+  ])('does not recreate curator return state after a refresh following a %s load', async (_label, firstResponse, errorHeading) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(firstResponse)
+      .mockResolvedValueOnce(respond(detail()))
+    vi.stubGlobal('fetch', fetchMock)
+    const view = renderAt('/visit/1', {
+      curatorExhibitionId: 1,
+      curatorReturnTo: '/exhibitions/1/preview',
+    })
+
+    expect(await screen.findByRole('heading', { name: errorHeading })).toBeInTheDocument()
+    await waitFor(() => expect(window.history.state?.usr).toBeNull())
+
+    view.unmount()
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Lines of Light' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Return to curator preview' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Exit to exhibitions' })[0]).toHaveAttribute('href', '/')
+  })
+
+  it('keeps Browser Back on the curator preview after consuming the public route state', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions/1') return Promise.resolve(respond(curatorDetail()))
+      if (path === '/api/public/exhibitions/1') return Promise.resolve(respond(detail()))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/preview')
+
+    await userEvent.click(await screen.findByRole('link', { name: 'View public exhibition' }))
+    expect((await screen.findAllByRole('link', { name: 'Return to curator preview' }))[0]).toBeInTheDocument()
+    await waitFor(() => expect(window.history.state?.usr).toBeNull())
+    await act(async () => { await appRouter.navigate(-1) })
+
+    expect(window.location.pathname).toBe('/exhibitions/1/preview')
+    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+  })
+
+  it('does not replay consumed curator return state after leaving and re-entering the public route', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/public/exhibitions/1') return Promise.resolve(respond(detail({ title: 'First public exhibition' })))
+      if (path === '/api/public/exhibitions/2') return Promise.resolve(respond(detail({ id: 2, title: 'Second public exhibition' })))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/visit/1', {
+      curatorExhibitionId: 1,
+      curatorReturnTo: '/exhibitions/1/preview',
+    })
+
+    expect((await screen.findAllByRole('link', { name: 'Return to curator preview' }))[0]).toBeInTheDocument()
+    await waitFor(() => expect(window.history.state?.usr).toBeNull())
+    await act(async () => { await appRouter.navigate('/visit/2') })
+    expect(await screen.findByRole('heading', { name: 'Second public exhibition' })).toBeInTheDocument()
+    await act(async () => { await appRouter.navigate(-1) })
+
+    expect(await screen.findByRole('heading', { name: 'First public exhibition' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Return to curator preview' })).not.toBeInTheDocument()
+  })
+
+  it('keeps curator return and visitor exit actions in the standard fallback', async () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(false)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail())))
+    renderAt('/visit/1', {
+      curatorExhibitionId: 1,
+      curatorReturnTo: '/exhibitions/1/preview',
+    })
+
+    const navigation = await screen.findByRole('navigation', { name: 'Exhibition navigation' })
+    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual([
+      'Return to curator preview',
+      'Exit to exhibitions',
+    ])
+    expect(within(navigation).getByRole('link', { name: 'Return to curator preview' })).toHaveAttribute('href', '/exhibitions/1/preview')
+    expect(within(navigation).getByRole('link', { name: 'Exit to exhibitions' })).toHaveAttribute('href', '/')
   })
 
   it('renders artwork cards in their committed position order', async () => {
@@ -126,7 +271,7 @@ describe('public exhibition view', () => {
       'href',
       'https://museum.example/artworks/10',
     )
-    expect(screen.getByRole('link', { name: 'Back to exhibitions' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
   })
 

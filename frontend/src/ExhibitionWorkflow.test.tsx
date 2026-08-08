@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -51,7 +51,7 @@ afterEach(() => {
 })
 
 describe('exhibition create and edit workflow', () => {
-  it('creates an exhibition and opens its edit route', async () => {
+  it('shows the creation acknowledgement once and does not replay it after browser Back', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail({
         id: 42,
@@ -67,19 +67,32 @@ describe('exhibition create and edit workflow', () => {
         introduction: undefined,
         coverArtworkId: undefined,
       })))
+      .mockResolvedValueOnce(respond(detail({ id: 42, title: 'Night works' })))
+      .mockResolvedValueOnce(respond(detail({ id: 42, title: 'Night works' })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/new')
 
     await userEvent.type(screen.getByLabelText(/title/i), 'Night works')
     await userEvent.click(screen.getByRole('button', { name: 'Create exhibition' }))
 
-    expect(await screen.findByDisplayValue('Night works')).toBeInTheDocument()
+    expect(await screen.findByText('Exhibition created.')).toBeInTheDocument()
+    await waitFor(() => expect(window.history.state?.usr).toBeNull())
+    expect(screen.getByDisplayValue('Night works')).toBeInTheDocument()
     expect(window.location.pathname).toBe('/exhibitions/42/edit')
+    expect(screen.getByRole('link', { name: 'Continue to artworks' })).toHaveAttribute('href', '/exhibitions/42/artworks')
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/exhibitions', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ title: 'Night works', summary: '', introduction: '' }),
     }))
+
+    await userEvent.click(screen.getByRole('link', { name: 'Continue to artworks' }))
+    expect(await screen.findByRole('heading', { name: 'Add artworks' })).toBeInTheDocument()
+    await act(async () => { await appRouter.navigate(-1) })
+
+    expect(await screen.findByDisplayValue('Night works')).toBeInTheDocument()
+    expect(screen.queryByText('Exhibition created.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Continue to artworks' })).not.toBeInTheDocument()
   })
 
   it('loads an uncovered draft when nullable metadata is omitted', async () => {
@@ -92,8 +105,19 @@ describe('exhibition create and edit workflow', () => {
     renderAt('/exhibitions/1/edit')
 
     expect(await screen.findByLabelText(/title/i)).toHaveValue('Uncovered draft')
+    const context = screen.getByRole('region', { name: 'Current exhibition' })
+    expect(within(context).getByText('Uncovered draft')).toBeInTheDocument()
+    expect(within(context).getByText('Draft')).toBeInTheDocument()
+    expect(within(context).getByRole('link', { name: 'Metadata' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByLabelText(/summary/i)).toHaveValue('')
     expect(screen.getByLabelText(/introduction/i)).toHaveValue('')
+
+    await userEvent.type(screen.getByLabelText(/title/i), ' unsaved')
+    expect(within(context).getByText('Uncovered draft')).toBeInTheDocument()
+    expect(within(context).queryByText('Uncovered draft unsaved')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Exhibition actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Curate artworks' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Preview exhibition' })).not.toBeInTheDocument()
   })
 
   it('shows backend field errors beside the form field', async () => {
@@ -124,6 +148,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create exhibition' }))
 
     expect(await screen.findByText('Please try again shortly.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Continue to artworks' })).not.toBeInTheDocument()
     expect(screen.getByLabelText(/title/i)).toHaveValue('Saved locally')
     expect(screen.getByLabelText(/summary/i)).toHaveValue('Keep this text')
     await userEvent.click(screen.getByRole('link', { name: 'Cancel' }))
@@ -180,7 +205,9 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
 
     expect(await screen.findByText('Metadata saved.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Continue to artworks' })).toHaveAttribute('href', '/exhibitions/1/artworks')
     expect(screen.getByLabelText(/title/i)).toHaveValue('Server-normalized title')
+    expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Server-normalized title')).toBeInTheDocument()
     expect(screen.getByLabelText(/summary/i)).toHaveValue('Committed summary')
     expect(screen.getByLabelText(/introduction/i)).toHaveValue('Committed introduction')
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/exhibitions/1', expect.objectContaining({
@@ -202,7 +229,7 @@ describe('exhibition create and edit workflow', () => {
     renderAt('/exhibitions/1/edit')
 
     const title = await screen.findByLabelText(/title/i)
-    await userEvent.click(screen.getByRole('link', { name: 'Curate artworks' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Artworks' }))
     expect(await screen.findByRole('heading', { name: 'Add artworks' })).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 
@@ -210,7 +237,7 @@ describe('exhibition create and edit workflow', () => {
     const reloadedTitle = await screen.findByLabelText(/title/i)
     await userEvent.clear(reloadedTitle)
     await userEvent.type(reloadedTitle, '  Exact dirty title  ')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
     expect(window.location.pathname).toBe('/exhibitions/1/edit')
 
@@ -235,7 +262,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.type(title, 'Client update')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
     await screen.findByText('Metadata saved.')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 
@@ -245,7 +272,8 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.type(titleAfterReturn, 'Failed update')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
     await screen.findByText('Please try again.')
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    expect(screen.queryByRole('link', { name: 'Continue to artworks' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
     expect(titleAfterReturn).toHaveValue('Failed update')
   })
@@ -267,7 +295,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.type(title, 'Pending title')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
     await waitFor(() => expect(resolveSave).toBeDefined())
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
 
     await act(async () => { resolveSave?.(respond(detail({ title: 'Saved title' }))) })
@@ -295,7 +323,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.type(title, 'Still unsaved')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
     await waitFor(() => expect(resolveSave).toBeDefined())
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
 
     await act(async () => { resolveSave?.(respond(error('SERVICE_UNAVAILABLE', 'Please try again.', 503), 503)) })
 
@@ -322,7 +350,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.type(title, 'Pending title')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
     await waitFor(() => expect(resolveSave).toBeDefined())
-    const preview = screen.getByRole('link', { name: 'Preview exhibition' })
+    const preview = screen.getByRole('link', { name: 'Preview & publish' })
     await userEvent.click(preview)
     await userEvent.click(screen.getByRole('button', { name: 'Stay' }))
     await waitFor(() => expect(preview).toHaveFocus())
@@ -353,7 +381,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.clear(title)
     await userEvent.type(title, 'Pending title')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
-    await userEvent.click(screen.getByRole('link', { name: 'Preview exhibition' }))
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
     await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
 
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
@@ -380,6 +408,9 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
     await routeChange
     expect(await screen.findByDisplayValue('Second exhibition')).toBeInTheDocument()
+    const context = screen.getByRole('region', { name: 'Current exhibition' })
+    expect(within(context).getByText('Second exhibition')).toBeInTheDocument()
+    expect(within(context).queryByText('First exhibition')).not.toBeInTheDocument()
   })
 
   it('reconciles a metadata conflict to committed published values', async () => {
@@ -415,6 +446,9 @@ describe('exhibition create and edit workflow', () => {
     expect(screen.queryByDisplayValue('Change attempted')).not.toBeInTheDocument()
     expect(screen.getByLabelText(/title/i)).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Delete exhibition' })).not.toBeInTheDocument()
+    const context = screen.getByRole('region', { name: 'Current exhibition' })
+    expect(within(context).getByText('Committed published title')).toBeInTheDocument()
+    expect(within(context).getByText('Published')).toBeInTheDocument()
   })
 
   it('labels failed metadata reconciliation and installs committed values after retry', async () => {
@@ -475,7 +509,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
     await screen.findByText(/loading the committed published version/i)
 
-    const previewLink = screen.getByRole('link', { name: 'Preview exhibition' })
+    const previewLink = screen.getByRole('link', { name: 'Preview & publish' })
     previewLink.focus()
     expect(previewLink).toHaveFocus()
     resolveReconciliation?.(respond(detail({
