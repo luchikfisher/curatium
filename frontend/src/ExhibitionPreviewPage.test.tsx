@@ -234,6 +234,7 @@ describe('curator exhibition preview', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Publish exhibition' }))
 
     expect(await screen.findByRole('heading', { name: 'Committed published title' })).toBeInTheDocument()
+    expect(document.title).toBe('Preview — Committed published title | Curatium')
     expect(screen.getByText('Published exhibition')).toBeInTheDocument()
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(screen.getByText('Exhibition published. Curatorial editing is now read-only.')).toBeInTheDocument()
@@ -492,6 +493,7 @@ describe('curator exhibition preview', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
 
     expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(document.title).toBe('Preview — Lines of Light | Curatium')
     expect(screen.queryByText('Published', { selector: 'dt' })).not.toBeInTheDocument()
     expect(screen.getByText('Preserved summary')).toBeInTheDocument()
     expect(screen.getByText('Preserved introduction')).toBeInTheDocument()

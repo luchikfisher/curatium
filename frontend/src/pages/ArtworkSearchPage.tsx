@@ -37,6 +37,7 @@ import type {
   MuseumArtworkSearchPage,
   MuseumArtworkSearchResult,
 } from '../features/exhibitions/types'
+import { useRouteDocumentTitle } from '../features/route-orientation/useRouteDocumentTitle'
 
 const SEARCH_PAGE_SIZE = 20
 const MAXIMUM_CURATORIAL_NOTE_LENGTH = 2000
@@ -116,6 +117,18 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     Object.values(noteDrafts).some((draft) => draft.value !== draft.baseline),
     { allowSearchChangesOnSamePath: true },
   )
+  const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  useRouteDocumentTitle({
+    routeId: 'artworks',
+    exhibitionId,
+    title: exhibitionNotFound || isFrontendError(loadError) && loadError.status === 404
+      ? 'Exhibition not found | Curatium'
+      : loadedExhibition
+        ? `Artworks — ${loadedExhibition.title} | Curatium`
+        : loadError
+          ? 'Exhibition unavailable | Curatium'
+          : null,
+  })
 
   const runSearch = useCallback(async (normalizedQuery: string, page: number) => {
     searchController.current?.abort()
@@ -1247,6 +1260,11 @@ function parseExhibitionId(id: string | undefined): number | null {
 }
 
 function InvalidExhibitionRoute() {
+  useRouteDocumentTitle({
+    routeId: 'artworks',
+    exhibitionId: null,
+    title: 'Invalid exhibition address | Curatium',
+  })
   return (
     <section className="state-panel editor-state" role="alert">
       <p className="eyebrow">Invalid address</p>

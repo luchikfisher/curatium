@@ -8,6 +8,7 @@ import { useExhibition } from '../features/exhibitions/useExhibition'
 import { curatorReturnTarget } from '../features/exhibitions/curatorVisitState'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 import type { PublicExhibitionDetail } from '../features/exhibitions/types'
+import { useRouteDocumentTitle } from '../features/route-orientation/useRouteDocumentTitle'
 
 export function PublicExhibitionPage() {
   const { id } = useParams()
@@ -21,6 +22,20 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
   const navigate = useNavigate()
   const { data: exhibition, error, retry } = useExhibition(exhibitionId, getPublicExhibition)
   const [curatorReturnTo] = useState(() => curatorReturnTarget(location.state, exhibitionId))
+  const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  useRouteDocumentTitle({
+    routeId: 'public-exhibition',
+    exhibitionId,
+    title: loadedExhibition
+      ? `${loadedExhibition.title} | Curatium`
+      : error
+        ? isFrontendError(error) && error.status === 404
+          ? 'Exhibition not found | Curatium'
+          : 'Exhibition unavailable | Curatium'
+        : exhibition === null
+          ? null
+          : 'Exhibition unavailable | Curatium',
+  })
 
   useEffect(() => {
     if (curatorReturnTo === null) return
@@ -74,6 +89,11 @@ function StandardExhibition({
 }
 
 function InvalidExhibitionRoute() {
+  useRouteDocumentTitle({
+    routeId: 'public-exhibition',
+    exhibitionId: null,
+    title: 'Invalid exhibition address | Curatium',
+  })
   return (
     <section className="state-panel public-exhibition__state" role="alert">
       <p className="eyebrow">Invalid address</p>

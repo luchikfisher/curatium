@@ -234,11 +234,13 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByRole('heading', { name: 'Night page one' })).toBeInTheDocument()
+    expect(document.title).toBe('Artworks — Lines of Light | Curatium')
     expect(window.location.pathname).toBe('/exhibitions/1/artworks')
     expect(window.location.search).toBe('?q=night+sky')
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
 
     expect(await screen.findByRole('heading', { name: 'Night page two' })).toBeInTheDocument()
+    expect(document.title).toBe('Artworks — Lines of Light | Curatium')
     expect(window.location.search).toBe('?q=night+sky&page=2')
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,

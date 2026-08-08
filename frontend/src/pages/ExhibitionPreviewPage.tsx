@@ -9,6 +9,7 @@ import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibit
 import { readArtworkSearchReturnTarget } from '../features/exhibitions/artworkSearchNavigation'
 import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
+import { useRouteDocumentTitle } from '../features/route-orientation/useRouteDocumentTitle'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 
 export function ExhibitionPreviewPage() {
@@ -31,6 +32,18 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const [publicationSuccess, setPublicationSuccess] = useState<string | null>(null)
   const [publicationNotFound, setPublicationNotFound] = useState(false)
   const [focusPublicationNotFound, setFocusPublicationNotFound] = useState(false)
+  const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  useRouteDocumentTitle({
+    routeId: 'preview',
+    exhibitionId,
+    title: publicationNotFound || isFrontendError(error) && error.status === 404
+      ? 'Exhibition not found | Curatium'
+      : loadedExhibition
+        ? `Preview — ${loadedExhibition.title} | Curatium`
+        : error
+          ? 'Preview unavailable | Curatium'
+          : null,
+  })
 
   useEffect(() => () => mutationController.current?.abort(), [])
   useEffect(() => {
@@ -444,6 +457,11 @@ function parseExhibitionId(id: string | undefined): number | null {
 }
 
 function InvalidExhibitionRoute() {
+  useRouteDocumentTitle({
+    routeId: 'preview',
+    exhibitionId: null,
+    title: 'Invalid exhibition address | Curatium',
+  })
   return (
     <section className="state-panel editor-state" role="alert">
       <p className="eyebrow">Invalid address</p>

@@ -22,6 +22,7 @@ import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import type { MetadataFieldErrors } from '../features/exhibitions/metadataValidation'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import type { ExhibitionMetadata } from '../features/exhibitions/types'
+import { useRouteDocumentTitle } from '../features/route-orientation/useRouteDocumentTitle'
 
 const emptyMetadata: ExhibitionMetadata = { title: '', summary: '', introduction: '' }
 
@@ -59,6 +60,17 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const restoreDeleteFocus = useRef(false)
 
   const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  useRouteDocumentTitle({
+    routeId: 'metadata',
+    exhibitionId,
+    title: loadedExhibition
+      ? `Metadata — ${loadedExhibition.title} | Curatium`
+      : loadError
+        ? isFrontendError(loadError) && loadError.status === 404
+          ? 'Exhibition not found | Curatium'
+          : 'Exhibition unavailable | Curatium'
+        : null,
+  })
   const serverMetadata = loadedExhibition ? metadataFromExhibition(loadedExhibition) : emptyMetadata
   const formMetadata = loadedId === exhibitionId ? metadata : serverMetadata
   const baselineMetadata = loadedId === exhibitionId ? committedBaseline : serverMetadata
@@ -313,6 +325,11 @@ function parseExhibitionId(id: string | undefined): number | null {
 }
 
 function InvalidExhibitionRoute() {
+  useRouteDocumentTitle({
+    routeId: 'metadata',
+    exhibitionId: null,
+    title: 'Invalid exhibition address | Curatium',
+  })
   return (
     <section className="state-panel editor-state" role="alert">
       <p className="eyebrow">Invalid address</p>
