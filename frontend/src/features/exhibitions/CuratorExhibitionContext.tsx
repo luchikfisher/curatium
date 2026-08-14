@@ -65,15 +65,23 @@ export function CuratorNextStep({
   to,
   label,
   state,
+  announce = true,
 }: {
   message: string
   to: string
   label: string
   state?: unknown
+  announce?: boolean
 }) {
   return (
     <div className="curator-next-step">
-      <p role="status">{message}</p>
+      <p
+        role={announce ? 'status' : undefined}
+        aria-live={announce ? 'polite' : undefined}
+        aria-atomic={announce ? 'true' : undefined}
+      >
+        {message}
+      </p>
       <Link className="text-link" to={to} state={state}>{label}</Link>
     </div>
   )

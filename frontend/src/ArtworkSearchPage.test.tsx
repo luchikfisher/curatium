@@ -72,6 +72,33 @@ async function loadSearchPage() {
   return screen.findByLabelText('Search terms')
 }
 
+interface ValidationFocusSnapshot {
+  target: Element
+  ariaInvalid: string | null
+  describedBy: string | null
+  inlineError: string | null
+  summary: string | null
+}
+
+function recordValidationFocus(
+  control: HTMLElement,
+  snapshots: ValidationFocusSnapshot[],
+) {
+  const listener = (event: FocusEvent) => {
+    if (event.target !== control) return
+    const describedBy = control.getAttribute('aria-describedby')
+    snapshots.push({
+      target: control,
+      ariaInvalid: control.getAttribute('aria-invalid'),
+      describedBy,
+      inlineError: describedBy ? document.getElementById(describedBy)?.textContent ?? null : null,
+      summary: control.closest('form')?.querySelector('[role="alert"]')?.textContent ?? null,
+    })
+  }
+  document.addEventListener('focusin', listener)
+  return () => document.removeEventListener('focusin', listener)
+}
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -234,12 +261,14 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByRole('heading', { name: 'Night page one' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(document.title).toBe('Artworks — Lines of Light | Curatium')
     expect(window.location.pathname).toBe('/exhibitions/1/artworks')
     expect(window.location.search).toBe('?q=night+sky')
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
 
     expect(await screen.findByRole('heading', { name: 'Night page two' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 2.')
     expect(document.title).toBe('Artworks — Lines of Light | Curatium')
     expect(window.location.search).toBe('?q=night+sky&page=2')
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -312,9 +341,11 @@ describe('museum artwork search and add flow', () => {
 
     await act(async () => { await appRouter.navigate(-1) })
     expect(await screen.findByRole('heading', { name: 'Night result' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(screen.getByLabelText('Search terms')).toHaveValue('night')
     await act(async () => { await appRouter.navigate(1) })
     expect(await screen.findByRole('heading', { name: 'Moon result' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(screen.getByLabelText('Search terms')).toHaveValue('moon')
     expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('q=night'))).toHaveLength(2)
     expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('q=moon'))).toHaveLength(2)
@@ -420,6 +451,9 @@ describe('museum artwork search and add flow', () => {
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
     )
     expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' })).toHaveAttribute('loading', 'lazy')
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
+    expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
+    expect(document.querySelector('.museum-results__grid')).not.toHaveAttribute('aria-live')
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/museum/artworks?q=night&page=1&size=20', expect.any(Object))
   })
 
@@ -434,6 +468,8 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByRole('heading', { name: 'No artworks found' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No artworks found on page 1.')
+    expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
   })
 
   it('can continue from a filtered empty page when the provider has another page', async () => {
@@ -465,11 +501,54 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    await userEvent.type(await loadSearchPage(), ' n ')
+    const query = await loadSearchPage()
+    await userEvent.type(query, ' n ')
+    const focusSnapshots: ValidationFocusSnapshot[] = []
+    const stopRecording = recordValidationFocus(query, focusSnapshots)
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    stopRecording()
 
+    expect(focusSnapshots).toEqual([{
+      target: query,
+      ariaInvalid: 'true',
+      describedBy: 'museum-query-error',
+      inlineError: 'Search query must be between 2 and 100 characters.',
+      summary: 'Museum search was not submitted. Correct the highlighted field.',
+    }])
+    expect(query).toHaveFocus()
+    expect(query).toHaveAttribute('aria-invalid', 'true')
+    expect(query).toHaveAttribute('aria-describedby', 'museum-query-error')
     expect(screen.getByText('Search query must be between 2 and 100 characters.')).toBeInTheDocument()
+    expect(screen.getByText('Search query must be between 2 and 100 characters.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Museum search was not submitted. Correct the highlighted field.',
+    )
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not move focus through validation when a valid museum search is submitted', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(searchPage()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const query = await loadSearchPage()
+    await userEvent.type(query, 'night')
+    const queryFocusEvents: EventTarget[] = []
+    const listener = (event: FocusEvent) => {
+      if (event.target === query) queryFocusEvents.push(event.target)
+    }
+    document.addEventListener('focusin', listener)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Nocturne' })
+    document.removeEventListener('focusin', listener)
+
+    expect(queryFocusEvents).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(/Museum search was not submitted/)).not.toBeInTheDocument()
   })
 
   it('cancels a stale search and renders only the latest results', async () => {
@@ -616,6 +695,9 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add artwork' }))
 
     expect(await screen.findByText('Already added')).toBeInTheDocument()
+    expect(screen.getByText('Already added')).not.toHaveAttribute('role')
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
+    expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Committed museum title' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Thumbnail of Committed museum title' })).toHaveAttribute(
@@ -640,6 +722,7 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByText('Already added')).toBeInTheDocument()
+    expect(screen.getByText('Already added')).not.toHaveAttribute('role')
     expect(screen.queryByRole('button', { name: 'Add artwork' })).not.toBeInTheDocument()
   })
 
@@ -1061,17 +1144,121 @@ describe('museum artwork search and add flow', () => {
   })
 
   it('validates oversized notes before submitting them', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(respond(detail({ items: [curatedItem('First artwork', 1)] })))
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail({ items: [first, second] })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    fireEvent.change(await screen.findByLabelText('Curatorial note for artwork 1 of 1: First artwork'), {
+    const firstNote = await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork')
+    const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
+    fireEvent.change(secondNote, {
       target: { value: 'x'.repeat(2001) },
     })
-    await userEvent.click(screen.getByRole('button', { name: /Save note for artwork/ }))
+    const focusSnapshots: ValidationFocusSnapshot[] = []
+    const textareaFocusEvents: EventTarget[] = []
+    const stopRecording = recordValidationFocus(secondNote, focusSnapshots)
+    const textareaListener = (event: FocusEvent) => {
+      if (event.target instanceof HTMLTextAreaElement) textareaFocusEvents.push(event.target)
+    }
+    document.addEventListener('focusin', textareaListener)
+    await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' }))
+    stopRecording()
+    document.removeEventListener('focusin', textareaListener)
 
+    expect(focusSnapshots).toEqual([{
+      target: secondNote,
+      ariaInvalid: 'true',
+      describedBy: 'curatorial-note-2-error',
+      inlineError: 'Curatorial note must be at most 2000 characters.',
+      summary: 'Curatorial note was not saved. Correct the highlighted field.',
+    }])
+    expect(textareaFocusEvents).toEqual([secondNote])
+    expect(secondNote).toHaveFocus()
+    expect(firstNote).not.toHaveFocus()
+    expect(firstNote).not.toHaveAttribute('aria-invalid', 'true')
+    expect(secondNote).toHaveAttribute('aria-describedby', 'curatorial-note-2-error')
     expect(screen.getByText('Curatorial note must be at most 2000 characters.')).toBeInTheDocument()
+    expect(screen.getByText('Curatorial note must be at most 2000 characters.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Curatorial note was not saved. Correct the highlighted field.',
+    )
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not move focus through validation when a valid note is submitted', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const savedSecond = { ...second, curatorialNote: 'A valid note' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(savedSecond))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const firstNote = await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork')
+    const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
+    await userEvent.type(secondNote, 'A valid note')
+    const textareaFocusEvents: EventTarget[] = []
+    const listener = (event: FocusEvent) => {
+      if (event.target === firstNote || event.target === secondNote) textareaFocusEvents.push(event.target)
+    }
+    document.addEventListener('focusin', listener)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' }))
+    await screen.findByText('Curatorial note saved.')
+    document.removeEventListener('focusin', listener)
+
+    expect(textareaFocusEvents).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(/Curatorial note was not saved/)).not.toBeInTheDocument()
+  })
+
+  it('keeps only the current curation mutation feedback live without disturbing another dirty note', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const savedSecond = { ...second, curatorialNote: 'Saved second note' }
+    const movedSecond = { ...savedSecond, position: 1 }
+    const movedFirst = { ...first, position: 2 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(detail({
+        items: [first, second],
+        coverArtworkId: second.artwork.id,
+      })))
+      .mockResolvedValueOnce(respond(savedSecond))
+      .mockResolvedValueOnce(respond([movedSecond, movedFirst]))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const firstNote = await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork')
+    const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
+    await userEvent.type(firstNote, 'Unsaved first note')
+    await userEvent.click(screen.getByRole('button', { name: 'Set artwork 2 of 2, Second artwork as cover' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Cover updated.')
+    expect(screen.getAllByText('Current cover').every((label) => !label.hasAttribute('role'))).toBe(true)
+
+    await userEvent.type(secondNote, 'Saved second note')
+    await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Curatorial note saved.')
+    expect(screen.getByText('Cover updated.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(firstNote).toHaveValue('Unsaved first note')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Move artwork 2 of 2, Second artwork up' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Artwork moved up.')
+    expect(screen.queryByText('Curatorial note saved.')).not.toBeInTheDocument()
+    expect(screen.getByText('Cover updated.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByLabelText('Curatorial note for artwork 2 of 2: First artwork'))
+      .toHaveValue('Unsaved first note')
+
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
+    expect(await screen.findByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
   })
 
   it('displays a backend curatorial-note field error', async () => {

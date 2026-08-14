@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { EmptyState, LoadingState } from '../components/AsyncState'
 import { ArtworkImage } from '../components/ArtworkImage'
+import { ValidationSummary, type ValidationFeedback } from '../components/ValidationSummary'
 import {
   AuthoritativeReconciliationNotice,
   type AuthoritativeReconciliationPhase,
@@ -71,6 +72,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const { data: exhibition, error: loadError, retry: retryLoad, replace } = useExhibition(exhibitionId, getExhibition)
   const [query, setQuery] = useState('')
   const [queryError, setQueryError] = useState('')
+  const [queryValidationFeedback, setQueryValidationFeedback] = useState<ValidationFeedback | null>(null)
   const [results, setResults] = useState<MuseumArtworkSearchPage | null>(null)
   const [activeQuery, setActiveQuery] = useState('')
   const [searchError, setSearchError] = useState<FrontendError | Error | null>(null)
@@ -82,12 +84,14 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [duplicateArtworkKeys, setDuplicateArtworkKeys] = useState<Set<string>>(() => new Set())
   const [noteDrafts, setNoteDrafts] = useState<Record<number, NoteDraft>>({})
   const [noteErrors, setNoteErrors] = useState<Record<number, string | undefined>>({})
+  const [noteValidationFeedback, setNoteValidationFeedback] = useState<(ValidationFeedback & { itemId: number }) | null>(null)
   const [itemError, setItemError] = useState('')
   const [itemSuccess, setItemSuccess] = useState('')
   const [itemMutation, setItemMutation] = useState<ItemMutation | null>(null)
   const [coverMutation, setCoverMutation] = useState<CoverMutation | null>(null)
   const [coverError, setCoverError] = useState('')
   const [coverSuccess, setCoverSuccess] = useState('')
+  const [liveMutationFeedback, setLiveMutationFeedback] = useState<'cover' | 'item' | null>(null)
   const [removingItemId, setRemovingItemId] = useState<number | null>(null)
   const [exhibitionNotFound, setExhibitionNotFound] = useState(false)
   const [reconciliationPhase, setReconciliationPhase] = useState<AuthoritativeReconciliationPhase>('idle')
@@ -96,6 +100,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const itemMutationController = useRef<AbortController | null>(null)
   const coverMutationController = useRef<AbortController | null>(null)
   const reconciliationController = useRef<AbortController | null>(null)
+  const queryInputRef = useRef<HTMLInputElement | null>(null)
+  const queryValidationAttempt = useRef(0)
+  const noteValidationAttempt = useRef(0)
+  const focusedQueryValidationAttempt = useRef(0)
+  const focusedNoteValidationAttempt = useRef(0)
   const authoringRegionRef = useRef<HTMLElement | null>(null)
   const reconciliationFocusOrigin = useRef<HTMLElement | null>(null)
   const searchRequest = useRef(0)
@@ -145,6 +154,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setSearching(true)
     setSearchError(null)
     setQueryError('')
+    setQueryValidationFeedback(null)
     try {
       const pageResult = await searchMuseumArtworks(
         normalizedQuery,
@@ -187,6 +197,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     const timer = window.setTimeout(() => {
       setQuery(searchUrlState.query)
       setQueryError('')
+      setQueryValidationFeedback(null)
       setSearchError(null)
       setResults(null)
       setActiveQuery('')
@@ -247,6 +258,30 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       restoreRemovalFocus.current = null
     }
   }, [removingItemId])
+  useEffect(() => {
+    if (
+      !queryValidationFeedback
+      || !queryError
+      || focusedQueryValidationAttempt.current === queryValidationFeedback.attempt
+    ) {
+      return
+    }
+    focusedQueryValidationAttempt.current = queryValidationFeedback.attempt
+    queryInputRef.current?.focus({ preventScroll: true })
+  }, [queryError, queryValidationFeedback])
+  useEffect(() => {
+    if (
+      !noteValidationFeedback
+      || !noteErrors[noteValidationFeedback.itemId]
+      || focusedNoteValidationAttempt.current === noteValidationFeedback.attempt
+    ) {
+      return
+    }
+    const noteControl = document.getElementById(`curatorial-note-${noteValidationFeedback.itemId}`)
+    if (!(noteControl instanceof HTMLTextAreaElement)) return
+    focusedNoteValidationAttempt.current = noteValidationFeedback.attempt
+    noteControl.focus({ preventScroll: true })
+  }, [noteErrors, noteValidationFeedback])
 
   if (exhibitionNotFound) {
     return (
@@ -281,6 +316,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   function replaceExhibition(nextExhibition: ExhibitionDetail) {
     if (nextExhibition.coverArtworkId !== currentExhibition.coverArtworkId) {
       setCoverSuccess('')
+      setLiveMutationFeedback((current) => current === 'cover' ? null : current)
     }
     const retainedItemIds = new Set(nextExhibition.items.map((item) => item.id))
     setNoteDrafts((current) => {
@@ -289,6 +325,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       )
       return Object.keys(retained).length === Object.keys(current).length ? current : retained
     })
+    setNoteValidationFeedback((current) => current && retainedItemIds.has(current.itemId) ? current : null)
     replace(nextExhibition)
   }
 
@@ -308,6 +345,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     replace(nextExhibition)
     setNoteDrafts({})
     setNoteErrors({})
+    setNoteValidationFeedback(null)
     setCapacityReached(nextExhibition.items.length >= 10)
     setDuplicateArtworkKeys(new Set())
     setAddingExternalId(null)
@@ -316,6 +354,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setItemSuccess('')
     setCoverError('')
     setCoverSuccess('')
+    setLiveMutationFeedback(null)
     setRemovingItemId(null)
     restoreRemovalFocus.current = null
   }
@@ -349,6 +388,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   function changeQuery(value: string) {
     setQuery(value)
     setQueryError('')
+    setQueryValidationFeedback(null)
   }
 
   function submitSearch(event: React.FormEvent<HTMLFormElement>) {
@@ -356,8 +396,14 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     const normalizedQuery = query.trim()
     if (normalizedQuery.length < 2 || normalizedQuery.length > 100) {
       setQueryError('Search query must be between 2 and 100 characters.')
+      queryValidationAttempt.current += 1
+      setQueryValidationFeedback({
+        attempt: queryValidationAttempt.current,
+        message: 'Museum search was not submitted. Correct the highlighted field.',
+      })
       return
     }
+    setQueryValidationFeedback(null)
     setQuery(normalizedQuery)
     startSearch(normalizedQuery, 1)
   }
@@ -388,6 +434,8 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     addController.current = controller
     setAddingExternalId(artwork.externalId)
     setAddError('')
+    setItemSuccess('')
+    setLiveMutationFeedback(null)
     try {
       const addedItem = await addExhibitionArtwork(currentExhibition.id, artwork, controller.signal)
       if (isCurrentAddRequest(controller)) {
@@ -465,6 +513,8 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setCoverMutation(mutation)
     setCoverError('')
     setCoverSuccess('')
+    setItemSuccess('')
+    setLiveMutationFeedback(null)
     return controller
   }
 
@@ -505,6 +555,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       if (isCurrentCoverMutation(controller)) {
         replaceExhibition(updatedExhibition)
         setCoverSuccess('Cover updated.')
+        setLiveMutationFeedback('cover')
       }
     } catch (reason) {
       if (isCurrentCoverMutation(controller)) await handleCoverMutationError(reason)
@@ -524,6 +575,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       if (isCurrentCoverMutation(controller)) {
         replaceExhibition(updatedExhibition)
         setCoverSuccess('Cover cleared.')
+        setLiveMutationFeedback('cover')
       }
     } catch (reason) {
       if (isCurrentCoverMutation(controller)) await handleCoverMutationError(reason)
@@ -549,8 +601,10 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       return { ...current, [itemId]: { baseline, value } }
     })
     setNoteErrors((current) => ({ ...current, [itemId]: undefined }))
+    setNoteValidationFeedback((current) => current?.itemId === itemId ? null : current)
     setItemError('')
     setItemSuccess('')
+    setLiveMutationFeedback(null)
   }
 
   function beginItemMutation(itemId: number, kind: ItemMutationKind): AbortController | null {
@@ -560,6 +614,8 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setItemMutation({ itemId, kind })
     setItemError('')
     setItemSuccess('')
+    setNoteValidationFeedback(null)
+    setLiveMutationFeedback(null)
     return controller
   }
 
@@ -610,12 +666,21 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   async function saveNote(item: ExhibitionItem, value = noteValue(item)) {
     if (value.length > MAXIMUM_CURATORIAL_NOTE_LENGTH) {
+      setItemSuccess('')
+      setLiveMutationFeedback(null)
       setNoteErrors((current) => ({
         ...current,
         [item.id]: `Curatorial note must be at most ${MAXIMUM_CURATORIAL_NOTE_LENGTH} characters.`,
       }))
+      noteValidationAttempt.current += 1
+      setNoteValidationFeedback({
+        itemId: item.id,
+        attempt: noteValidationAttempt.current,
+        message: 'Curatorial note was not saved. Correct the highlighted field.',
+      })
       return
     }
+    setNoteValidationFeedback(null)
     const controller = beginItemMutation(item.id, 'note')
     if (!controller) return
     try {
@@ -629,6 +694,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         replaceExhibition(withReplacedItem(currentExhibition, updatedItem))
         clearNoteDraft(item.id)
         setItemSuccess(value.trim() ? 'Curatorial note saved.' : 'Curatorial note cleared.')
+        setLiveMutationFeedback('item')
       }
     } catch (reason) {
       if (isCurrentItemMutation(controller)) await handleItemMutationError(reason, item.id)
@@ -653,6 +719,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       if (isCurrentItemMutation(controller)) {
         replaceExhibition(withItems(currentExhibition, orderedItems))
         setItemSuccess(`Artwork moved ${direction}.`)
+        setLiveMutationFeedback('item')
       }
     } catch (reason) {
       if (isCurrentItemMutation(controller)) await handleItemMutationError(reason, item.id)
@@ -668,6 +735,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     if (authoringLocked || itemMutationInProgress || coverMutationInProgress || addingExternalId !== null) return
     setItemError('')
     setItemSuccess('')
+    setLiveMutationFeedback(null)
     setRemovingItemId(itemId)
   }
 
@@ -692,6 +760,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         setRemovingItemId(null)
         setItemError('')
         setItemSuccess('Artwork removed.')
+        setLiveMutationFeedback('item')
       }
     } catch (reason) {
       if (isCurrentItemMutation(controller)) await handleItemMutationError(reason, item.id)
@@ -758,7 +827,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
               className="cover-selection__image"
             />
             <div>
-              <p className="cover-selection__status" role="status">Current cover</p>
+              <p className="cover-selection__status">Current cover</p>
               <p>{coverItem.artwork.title}</p>
               <button
                 aria-label={`Clear cover, artwork ${coverItem.position} of ${currentExhibition.items.length}, ${coverItem.artwork.title}`}
@@ -781,16 +850,33 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
             to={`/exhibitions/${currentExhibition.id}/preview`}
             label="Continue to preview & publish"
             state={previewReturnState}
+            announce={liveMutationFeedback === 'cover'}
           />
         ) : coverSuccess ? (
-          <p className="form-success" role="status">{coverSuccess}</p>
+          <p
+            className="form-success"
+            role={liveMutationFeedback === 'cover' ? 'status' : undefined}
+            aria-live={liveMutationFeedback === 'cover' ? 'polite' : undefined}
+            aria-atomic={liveMutationFeedback === 'cover' ? 'true' : undefined}
+          >
+            {coverSuccess}
+          </p>
         ) : null}
       </section>
       <section className="artwork-search-section" aria-labelledby="current-artworks-heading">
         <h2 id="current-artworks-heading">Current artworks ({currentExhibition.items.length}/10)</h2>
         {isReadOnly && <p className="form-alert" role="status">This exhibition is published and read-only.</p>}
         {itemError && <p className="form-alert" role="alert">{itemError}</p>}
-        {itemSuccess && <p className="form-success" role="status">{itemSuccess}</p>}
+        {itemSuccess && (
+          <p
+            className="form-success"
+            role={liveMutationFeedback === 'item' ? 'status' : undefined}
+            aria-live={liveMutationFeedback === 'item' ? 'polite' : undefined}
+            aria-atomic={liveMutationFeedback === 'item' ? 'true' : undefined}
+          >
+            {itemSuccess}
+          </p>
+        )}
         {currentExhibition.items.length === 0 ? (
           <p className="section-copy">No artworks have been added yet.</p>
         ) : (
@@ -802,6 +888,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                 itemCount={currentExhibition.items.length}
                 note={noteValue(item)}
                 noteError={noteErrors[item.id]}
+                noteValidationFeedback={noteValidationFeedback?.itemId === item.id ? noteValidationFeedback : null}
                 isReadOnly={authoringLocked}
                 isBusy={itemMutationInProgress}
                 coverMutation={coverMutation}
@@ -836,6 +923,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           <label htmlFor="museum-query">Search terms</label>
           <div className="museum-search-form__controls">
             <input
+              ref={queryInputRef}
               id="museum-query"
               name="q"
               type="search"
@@ -849,6 +937,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
             </button>
           </div>
           {queryError && <p className="field-error" id="museum-query-error">{queryError}</p>}
+          <ValidationSummary feedback={queryValidationFeedback} />
         </form>
         {searchError && <SearchError error={searchError} onRetry={retrySearch} />}
         <SearchContent
@@ -970,6 +1059,7 @@ function CurrentArtworkItem({
   itemCount,
   note,
   noteError,
+  noteValidationFeedback,
   isReadOnly,
   isBusy,
   coverMutation,
@@ -991,6 +1081,7 @@ function CurrentArtworkItem({
   itemCount: number
   note: string
   noteError?: string
+  noteValidationFeedback: ValidationFeedback | null
   isReadOnly: boolean
   isBusy: boolean
   coverMutation: CoverMutation | null
@@ -1051,6 +1142,7 @@ function CurrentArtworkItem({
             aria-describedby={noteError ? noteErrorId : undefined}
           />
           {noteError && <p className="field-error" id={noteErrorId}>{noteError}</p>}
+          <ValidationSummary feedback={noteValidationFeedback} />
           <div className="current-artwork-item__actions">
             <button aria-label={isSaving ? `Saving note for ${artworkDescriptor}` : `Save note for ${artworkDescriptor}`} className="button button-secondary" type="submit" disabled={disabled}>
               {isSaving ? 'Saving…' : 'Save note'}
@@ -1062,7 +1154,7 @@ function CurrentArtworkItem({
         </form>
         <div className="current-artwork-item__actions">
           {isCurrentCover ? (
-            <p className="current-artwork-item__cover" role="status">Current cover</p>
+            <p className="current-artwork-item__cover">Current cover</p>
           ) : (
             <button
               aria-label={isSettingCover
@@ -1136,7 +1228,10 @@ function SearchContent({
   }
   if (results.items.length === 0) {
     return (
-      <div className="museum-results" aria-live="polite">
+      <div className="museum-results">
+        <p className="results-count" role="status" aria-live="polite" aria-atomic="true">
+          No artworks found on page {results.page}.
+        </p>
         <EmptyState title="No artworks found">Try a different search term or continue to another page.</EmptyState>
         <SearchPagination
           results={results}
@@ -1149,8 +1244,10 @@ function SearchContent({
   }
 
   return (
-    <div className="museum-results" aria-live="polite">
-      <p className="results-count">{results.items.length} {results.items.length === 1 ? 'result' : 'results'} on page {results.page}</p>
+    <div className="museum-results">
+      <p className="results-count" role="status" aria-live="polite" aria-atomic="true">
+        {results.items.length} {results.items.length === 1 ? 'result' : 'results'} on page {results.page}.
+      </p>
       <div className="museum-results__grid">
         {results.items.map((artwork) => {
           const alreadyAdded = isAlreadyAdded(artwork)
@@ -1170,7 +1267,7 @@ function SearchContent({
                 {artwork.mediumDisplay && <p>{artwork.mediumDisplay}</p>}
                 <p className="artwork-card__status">Public domain</p>
                 {alreadyAdded ? (
-                  <p className="artwork-card__added" role="status">Already added</p>
+                  <p className="artwork-card__added">Already added</p>
                 ) : (
                   <button className="button" type="button" disabled={disabled} onClick={() => onAdd(artwork)}>
                     {addingExternalId === artwork.externalId ? 'Adding…' : 'Add artwork'}

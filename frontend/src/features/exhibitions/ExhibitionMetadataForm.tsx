@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+import { ValidationSummary, type ValidationFeedback } from '../../components/ValidationSummary'
 import type { ExhibitionMetadata } from './types'
 import { metadataLimit, type MetadataFieldErrors, validateExhibitionMetadata } from './metadataValidation'
 
@@ -22,18 +24,50 @@ export function ExhibitionMetadataForm({
   onSubmit: () => void
   onClientValidationFailure: (errors: MetadataFieldErrors) => void
 }) {
+  const formRef = useRef<HTMLFormElement>(null)
+  const validationAttempt = useRef(0)
+  const focusedValidationAttempt = useRef(0)
+  const [validationFeedback, setValidationFeedback] = useState<ValidationFeedback | null>(null)
+
+  useEffect(() => {
+    if (
+      !validationFeedback
+      || focusedValidationAttempt.current === validationFeedback.attempt
+    ) {
+      return
+    }
+    const invalidControl = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    if (!invalidControl) return
+    focusedValidationAttempt.current = validationFeedback.attempt
+    invalidControl.focus({ preventScroll: true })
+  }, [fieldErrors, validationFeedback])
+
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const errors = validateExhibitionMetadata(metadata)
     if (Object.keys(errors).length > 0) {
       onClientValidationFailure(errors)
+      validationAttempt.current += 1
+      setValidationFeedback({
+        attempt: validationAttempt.current,
+        message: Object.keys(errors).length === 1
+          ? 'Exhibition metadata was not submitted. Correct the highlighted field.'
+          : `Exhibition metadata was not submitted. Correct the ${Object.keys(errors).length} highlighted fields.`,
+      })
       return
     }
+    setValidationFeedback(null)
     onSubmit()
   }
 
+  function change(field: MetadataField, value: string) {
+    setValidationFeedback(null)
+    onChange(field, value)
+  }
+
   return (
-    <form className="exhibition-form" onSubmit={submit} noValidate>
+    <form ref={formRef} className="exhibition-form" onSubmit={submit} noValidate>
+      <ValidationSummary feedback={validationFeedback} />
       <FormField
         field="title"
         label="Title"
@@ -42,7 +76,7 @@ export function ExhibitionMetadataForm({
         disabled={readOnly || submitting}
         required
         maxLength={metadataLimit('title')}
-        onChange={onChange}
+        onChange={change}
       />
       <FormField
         field="summary"
@@ -51,7 +85,7 @@ export function ExhibitionMetadataForm({
         error={fieldErrors.summary}
         disabled={readOnly || submitting}
         maxLength={metadataLimit('summary')}
-        onChange={onChange}
+        onChange={change}
       />
       <FormField
         field="introduction"
@@ -61,7 +95,7 @@ export function ExhibitionMetadataForm({
         disabled={readOnly || submitting}
         maxLength={metadataLimit('introduction')}
         multiline
-        onChange={onChange}
+        onChange={change}
       />
       {!readOnly && (
         <button className="button" type="submit" disabled={submitting}>
