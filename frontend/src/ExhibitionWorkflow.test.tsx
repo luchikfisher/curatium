@@ -77,6 +77,7 @@ describe('exhibition create and edit workflow', () => {
 
     expect(await screen.findByText('Exhibition created.')).toBeInTheDocument()
     await waitFor(() => expect(window.history.state?.usr).toBeNull())
+    expect(document.title).toBe('Metadata — Night works | Curatium')
     expect(screen.getByDisplayValue('Night works')).toBeInTheDocument()
     expect(window.location.pathname).toBe('/exhibitions/42/edit')
     expect(screen.getByRole('link', { name: 'Continue to artworks' })).toHaveAttribute('href', '/exhibitions/42/artworks')
@@ -105,6 +106,7 @@ describe('exhibition create and edit workflow', () => {
     renderAt('/exhibitions/1/edit')
 
     expect(await screen.findByLabelText(/title/i)).toHaveValue('Uncovered draft')
+    expect(document.title).toBe('Metadata — Uncovered draft | Curatium')
     const context = screen.getByRole('region', { name: 'Current exhibition' })
     expect(within(context).getByText('Uncovered draft')).toBeInTheDocument()
     expect(within(context).getByText('Draft')).toBeInTheDocument()
@@ -113,6 +115,7 @@ describe('exhibition create and edit workflow', () => {
     expect(screen.getByLabelText(/introduction/i)).toHaveValue('')
 
     await userEvent.type(screen.getByLabelText(/title/i), ' unsaved')
+    expect(document.title).toBe('Metadata — Uncovered draft | Curatium')
     expect(within(context).getByText('Uncovered draft')).toBeInTheDocument()
     expect(within(context).queryByText('Uncovered draft unsaved')).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Exhibition actions' })).not.toBeInTheDocument()
@@ -198,15 +201,19 @@ describe('exhibition create and edit workflow', () => {
     renderAt('/exhibitions/1/edit')
 
     expect(screen.getByText('Loading exhibition metadata…')).toBeInTheDocument()
+    expect(document.title).toBe('Loading exhibition metadata | Curatium')
     const title = await screen.findByLabelText(/title/i)
     expect(title).toHaveValue('Lines of Light')
+    expect(document.title).toBe('Metadata — Lines of Light | Curatium')
     await userEvent.clear(title)
     await userEvent.type(title, 'Client title')
+    expect(document.title).toBe('Metadata — Lines of Light | Curatium')
     await userEvent.click(screen.getByRole('button', { name: 'Save metadata' }))
 
     expect(await screen.findByText('Metadata saved.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Continue to artworks' })).toHaveAttribute('href', '/exhibitions/1/artworks')
     expect(screen.getByLabelText(/title/i)).toHaveValue('Server-normalized title')
+    expect(document.title).toBe('Metadata — Server-normalized title | Curatium')
     expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Server-normalized title')).toBeInTheDocument()
     expect(screen.getByLabelText(/summary/i)).toHaveValue('Committed summary')
     expect(screen.getByLabelText(/introduction/i)).toHaveValue('Committed introduction')
@@ -449,6 +456,7 @@ describe('exhibition create and edit workflow', () => {
     const context = screen.getByRole('region', { name: 'Current exhibition' })
     expect(within(context).getByText('Committed published title')).toBeInTheDocument()
     expect(within(context).getByText('Published')).toBeInTheDocument()
+    expect(document.title).toBe('Metadata — Committed published title | Curatium')
   })
 
   it('labels failed metadata reconciliation and installs committed values after retry', async () => {

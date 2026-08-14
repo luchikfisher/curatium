@@ -32,7 +32,7 @@ describe('LazyExhibitionGallery', () => {
     const loadingStatus = screen.getByRole('status')
     const galleryShell = screen.getByRole('region', { name: 'Exhibition gallery experience' })
     expect(loadingStatus).toHaveTextContent('Loading the 3D gallery…')
-    expect(galleryShell).toHaveFocus()
+    expect(document.activeElement).toBe(document.body)
     expect(screen.getByRole('heading', { name: 'Preparing the 3D gallery' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Showing the standard gallery' })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Viewing the standard gallery' })).not.toBeInTheDocument()

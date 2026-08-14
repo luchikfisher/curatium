@@ -9,6 +9,8 @@ import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibit
 import { readArtworkSearchReturnTarget } from '../features/exhibitions/artworkSearchNavigation'
 import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
+import { useRouteDocumentTitle } from '../features/route-orientation/useRouteDocumentTitle'
+import { useRouteFocusTarget } from '../features/route-orientation/useRouteFocusTarget'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
 
 export function ExhibitionPreviewPage() {
@@ -31,6 +33,23 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const [publicationSuccess, setPublicationSuccess] = useState<string | null>(null)
   const [publicationNotFound, setPublicationNotFound] = useState(false)
   const [focusPublicationNotFound, setFocusPublicationNotFound] = useState(false)
+  const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
+  useRouteDocumentTitle({
+    routeId: 'preview',
+    exhibitionId,
+    title: publicationNotFound || isFrontendError(error) && error.status === 404
+      ? 'Exhibition not found | Curatium'
+      : loadedExhibition
+        ? `Preview — ${loadedExhibition.title} | Curatium`
+        : error
+          ? 'Preview unavailable | Curatium'
+          : null,
+    announcement: publicationNotFound || isFrontendError(error) && error.status === 404
+      ? null
+      : loadedExhibition
+        ? `Preview for ${loadedExhibition.title}`
+        : null,
+  })
 
   useEffect(() => () => mutationController.current?.abort(), [])
   useEffect(() => {
@@ -444,10 +463,17 @@ function parseExhibitionId(id: string | undefined): number | null {
 }
 
 function InvalidExhibitionRoute() {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useRouteFocusTarget(headingRef)
+  useRouteDocumentTitle({
+    routeId: 'preview',
+    exhibitionId: null,
+    title: 'Invalid exhibition address | Curatium',
+  })
   return (
     <section className="state-panel editor-state" role="alert">
       <p className="eyebrow">Invalid address</p>
-      <h1>Invalid exhibition address</h1>
+      <h1 ref={headingRef}>Invalid exhibition address</h1>
       <p>Use an exhibition address from your curator workspace.</p>
       <Link className="text-link" to="/exhibitions">Return to exhibitions</Link>
     </section>
@@ -456,6 +482,7 @@ function InvalidExhibitionRoute() {
 
 function PreviewNotFound({ onRetry, focusOnMount }: { onRetry: () => void; focusOnMount: boolean }) {
   const headingRef = useRef<HTMLHeadingElement | null>(null)
+  useRouteFocusTarget(headingRef)
 
   useEffect(() => {
     if (focusOnMount) headingRef.current?.focus({ preventScroll: true })
@@ -473,13 +500,15 @@ function PreviewNotFound({ onRetry, focusOnMount }: { onRetry: () => void; focus
 }
 
 function PreviewLoadError({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useRouteFocusTarget(headingRef)
   const message = isFrontendError(error)
     ? error.message
     : 'An unexpected problem occurred while loading this preview. Please try again.'
   return (
     <section className="state-panel editor-state" role="alert">
       <p className="eyebrow">Preview unavailable</p>
-      <h1>We could not load this preview</h1>
+      <h1 ref={headingRef}>We could not load this preview</h1>
       <p>{message}</p>
       <button className="button button-secondary" type="button" onClick={onRetry}>Try again</button>
     </section>

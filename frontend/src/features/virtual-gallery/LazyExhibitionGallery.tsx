@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ReactNode, type Ref, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useRouteFocusTarget } from '../route-orientation/useRouteFocusTarget'
 import type { GalleryExhibition } from './types'
 
 const ExhibitionGallery = lazy(async () => {
@@ -20,10 +21,7 @@ export function LazyExhibitionGallery({
   const galleryShellRef = useRef<HTMLDivElement>(null)
   const lazyFallbackRef = useRef<HTMLDivElement>(null)
   const lazyFallbackHadFocusRef = useRef(false)
-
-  useEffect(() => {
-    if (document.activeElement === document.body) galleryShellRef.current?.focus()
-  }, [exhibition.id])
+  useRouteFocusTarget(galleryShellRef)
 
   useEffect(() => {
     const trackFocusedArea = () => {
