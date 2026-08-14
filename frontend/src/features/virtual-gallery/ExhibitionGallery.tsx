@@ -20,6 +20,7 @@ export type GalleryDegradationReason =
   | 'scene-error'
 
 export type GalleryPhase =
+  | { kind: 'awaiting-entry'; attempt: number }
   | { kind: 'loading'; attempt: number }
   | { kind: 'ready'; attempt: number }
   | { kind: 'retrying'; attempt: number }
@@ -34,6 +35,8 @@ type ArtworkTextureState = {
   url: string
   attempt: number
 }
+
+const NARROW_GALLERY_MEDIA_QUERY = '(max-width: 42rem)'
 
 function initialTextureStates(assignments: readonly SlottedArtwork[]): Record<number, ArtworkTextureState> {
   return Object.fromEntries(assignments.map(({ item }) => [item.artwork.id, {
@@ -85,11 +88,18 @@ function GalleryInstance({
   headingLevel?: 1 | 2
   exitAction: ReactNode
 }) {
-  const [initialWebGLSupport] = useState(() => supportsWebGL())
-  const [mode, setMode] = useState<GalleryMode>(() => initialWebGLSupport ? 'virtual' : 'standard')
+  const narrowGalleryViewport = useNarrowGalleryViewport()
+  const [initialGalleryState] = useState(() => {
+    const webGLSupported = supportsWebGL()
+    return {
+      webGLSupported,
+      awaitsEntry: webGLSupported && narrowGalleryViewport,
+    }
+  })
+  const [mode, setMode] = useState<GalleryMode>(() => initialGalleryState.webGLSupported ? 'virtual' : 'standard')
   const [rendererAttempt, setRendererAttempt] = useState(0)
-  const [phase, setPhase] = useState<GalleryPhase>(() => initialWebGLSupport
-    ? { kind: 'loading', attempt: 0 }
+  const [phase, setPhase] = useState<GalleryPhase>(() => initialGalleryState.webGLSupported
+    ? { kind: initialGalleryState.awaitsEntry ? 'awaiting-entry' : 'loading', attempt: 0 }
     : { kind: 'degraded', attempt: 0, reason: 'webgl-unavailable' })
   const assignments = useMemo(() => assignArtworkSlots(exhibition.items), [exhibition.items])
   const [textureStates, setTextureStates] = useState<Record<number, ArtworkTextureState>>(() => initialTextureStates(assignments))
@@ -101,10 +111,11 @@ function GalleryInstance({
   const informationButtonRef = useRef<HTMLButtonElement>(null)
   const navigationRef = useRef<HTMLElement>(null)
   const restoreInformationFocus = useRef(false)
+  const awaitingEntryRef = useRef(initialGalleryState.awaitsEntry)
   const activeAttemptRef = useRef(rendererAttempt)
-  const virtualSessionActiveRef = useRef(initialWebGLSupport)
+  const virtualSessionActiveRef = useRef(initialGalleryState.webGLSupported && !initialGalleryState.awaitsEntry)
   const degradationReasonRef = useRef<GalleryDegradationReason | null>(
-    initialWebGLSupport ? null : 'webgl-unavailable',
+    initialGalleryState.webGLSupported ? null : 'webgl-unavailable',
   )
   const requestedFocusRef = useRef<GalleryFocusTarget | null>(null)
   const recoveryRef = useRef<HTMLElement>(null)
@@ -170,6 +181,35 @@ function GalleryInstance({
     setTourStarted(true)
   }
 
+  const enterVirtualGallery = useCallback(() => {
+    if (!awaitingEntryRef.current || virtualSessionActiveRef.current) return
+    if (!supportsWebGL()) {
+      awaitingEntryRef.current = false
+      degradationReasonRef.current = 'webgl-unavailable'
+      requestedFocusRef.current = 'recovery'
+      setMode('standard')
+      setPhase((current) => current.kind === 'awaiting-entry'
+        ? { kind: 'degraded', attempt: current.attempt, reason: 'webgl-unavailable' }
+        : current)
+      return
+    }
+
+    awaitingEntryRef.current = false
+    virtualSessionActiveRef.current = true
+    degradationReasonRef.current = null
+    requestedFocusRef.current = 'virtual'
+    setPhase((current) => current.kind === 'awaiting-entry'
+      ? { kind: 'loading', attempt: current.attempt }
+      : current)
+  }, [])
+
+  useEffect(() => {
+    if (phase.kind !== 'awaiting-entry' || mode !== 'virtual') return
+    if (narrowGalleryViewport) return
+    const startRenderer = window.setTimeout(enterVirtualGallery, 0)
+    return () => window.clearTimeout(startRenderer)
+  }, [enterVirtualGallery, mode, narrowGalleryViewport, phase.kind])
+
   const enterDegraded = useCallback((attempt: number, reason: GalleryDegradationReason, moveFocus: boolean) => {
     if (!virtualSessionActiveRef.current || attempt !== activeAttemptRef.current || degradationReasonRef.current !== null) return
     virtualSessionActiveRef.current = false
@@ -191,7 +231,7 @@ function GalleryInstance({
     })
   }, [])
 
-  const retryThreeDimensionalGallery = useCallback(() => {
+  const startFreshRendererAttempt = useCallback((resetTour: boolean) => {
     if (!supportsWebGL()) {
       virtualSessionActiveRef.current = false
       degradationReasonRef.current = 'webgl-unavailable'
@@ -206,11 +246,26 @@ function GalleryInstance({
     virtualSessionActiveRef.current = true
     degradationReasonRef.current = null
     requestedFocusRef.current = 'virtual'
-    setTourStarted(false)
-    setSelectedIndex(-1)
+    if (resetTour) {
+      setTourStarted(false)
+      setSelectedIndex(-1)
+    }
     setInformationOpen(false)
     setRendererAttempt(nextAttempt)
     setPhase({ kind: 'retrying', attempt: nextAttempt })
+    setMode('virtual')
+  }, [])
+
+  const retryThreeDimensionalGallery = useCallback(() => {
+    startFreshRendererAttempt(true)
+  }, [startFreshRendererAttempt])
+
+  const returnToVirtualGallery = useCallback(() => {
+    startFreshRendererAttempt(false)
+  }, [startFreshRendererAttempt])
+
+  const returnToPreEntry = useCallback(() => {
+    requestedFocusRef.current = 'virtual'
     setMode('virtual')
   }, [])
 
@@ -268,7 +323,10 @@ function GalleryInstance({
             onContinue={continueInStandardGallery}
           />
         ) : (
-          <GalleryStandardModePanel ref={standardModeRef} onRetry={retryThreeDimensionalGallery} />
+          <GalleryStandardModePanel
+            ref={standardModeRef}
+            onReturn={phase.kind === 'awaiting-entry' ? returnToPreEntry : returnToVirtualGallery}
+          />
         )}
         <div ref={standardContentRef} tabIndex={-1} aria-label="Standard gallery content">
           {fallback}
@@ -278,6 +336,19 @@ function GalleryInstance({
   }
 
   const Heading = headingLevel === 1 ? 'h1' : 'h2'
+  const galleryNavigation = phase.kind === 'ready' && tourStarted ? (
+    <GalleryNavigation
+      key="gallery-navigation"
+      navigationRef={navigationRef}
+      assignments={assignments}
+      selectedIndex={currentSelectedIndex}
+      onSelect={setSelectedIndex}
+      onToggleInformation={informationOpen ? closeInformation : () => setInformationOpen(true)}
+      informationOpen={informationOpen}
+      informationDialogId={informationDialogId}
+      informationButtonRef={informationButtonRef}
+    />
+  ) : null
   return (
     <GalleryErrorBoundary
       resetKey={`${sessionKey}:${rendererAttempt}`}
@@ -295,23 +366,37 @@ function GalleryInstance({
             {exitAction}
           </div>
         </div>
-        <div className="virtual-gallery__experience">
-          <GalleryCanvasSession
-            attempt={rendererAttempt}
-            assignments={assignments}
-            textureStates={textureStates}
-            viewpoint={viewpoint}
-            reducedMotion={reducedMotion}
-            onRendererReady={markRendererReady}
-            onDegraded={enterDegraded}
-            onTextureReady={reportTextureReady}
-            onTextureUnavailable={reportTextureUnavailable}
-          />
-          {phase.kind !== 'ready' && <GalleryLoadingState retrying={phase.kind === 'retrying'} />}
+        {narrowGalleryViewport && galleryNavigation}
+        <div key="gallery-experience" className="virtual-gallery__experience">
+          {phase.kind !== 'awaiting-entry' && (
+            <GalleryCanvasSession
+              attempt={rendererAttempt}
+              assignments={assignments}
+              textureStates={textureStates}
+              viewpoint={viewpoint}
+              reducedMotion={reducedMotion}
+              onRendererReady={markRendererReady}
+              onDegraded={enterDegraded}
+              onTextureReady={reportTextureReady}
+              onTextureUnavailable={reportTextureUnavailable}
+            />
+          )}
+          {(phase.kind === 'loading' || phase.kind === 'retrying') && (
+            <GalleryLoadingState retrying={phase.kind === 'retrying'} />
+          )}
           {unavailableTextureStates.length > 0 && (
             <GalleryTextureRecovery
               unavailableCount={unavailableTextureStates.length}
               onRetry={retryUnavailableTextures}
+            />
+          )}
+          {phase.kind === 'awaiting-entry' && (
+            <GalleryIntroduction
+              exhibition={exhibition}
+              artworkCount={assignments.length}
+              actionLabel="Enter virtual gallery"
+              allowEmptyAction
+              onBegin={enterVirtualGallery}
             />
           )}
           {!tourStarted && phase.kind === 'ready' && (
@@ -331,25 +416,14 @@ function GalleryInstance({
             />
           )}
         </div>
-        {phase.kind !== 'ready' && (
+        {(phase.kind === 'loading' || phase.kind === 'retrying') && (
           <GalleryRendererLoadingStandardContent
             ref={rendererLoadingContentRef}
             fallback={rendererLoadingFallback ?? fallback}
             retrying={phase.kind === 'retrying'}
           />
         )}
-        {phase.kind === 'ready' && tourStarted && (
-          <GalleryNavigation
-            navigationRef={navigationRef}
-            assignments={assignments}
-            selectedIndex={currentSelectedIndex}
-            onSelect={setSelectedIndex}
-            onToggleInformation={informationOpen ? closeInformation : () => setInformationOpen(true)}
-            informationOpen={informationOpen}
-            informationDialogId={informationDialogId}
-            informationButtonRef={informationButtonRef}
-          />
-        )}
+        {!narrowGalleryViewport && galleryNavigation}
       </section>
     </GalleryErrorBoundary>
   )
@@ -510,14 +584,14 @@ function createFailedRenderer(canvas: unknown): WebGLRenderer {
   } as unknown as WebGLRenderer
 }
 
-const GalleryStandardModePanel = ({ onRetry, ref }: { onRetry: () => void; ref: Ref<HTMLElement> }) => {
+const GalleryStandardModePanel = ({ onReturn, ref }: { onReturn: () => void; ref: Ref<HTMLElement> }) => {
   return (
     <section ref={ref} className="gallery-recovery gallery-recovery--standard" tabIndex={-1} aria-labelledby="gallery-standard-heading">
       <p className="eyebrow">Standard gallery</p>
       <h2 id="gallery-standard-heading">Viewing the standard gallery</h2>
       <p>You can return to the 3D gallery at any time.</p>
       <div className="gallery-recovery__actions">
-        <button className="button button-secondary" type="button" onClick={onRetry}>Try 3D again</button>
+        <button className="button button-secondary" type="button" onClick={onReturn}>Return to virtual gallery</button>
       </div>
     </section>
   )
@@ -526,10 +600,14 @@ const GalleryStandardModePanel = ({ onRetry, ref }: { onRetry: () => void; ref: 
 function GalleryIntroduction({
   exhibition,
   artworkCount,
+  actionLabel = 'Begin tour',
+  allowEmptyAction = false,
   onBegin,
 }: {
   exhibition: GalleryExhibition
   artworkCount: number
+  actionLabel?: string
+  allowEmptyAction?: boolean
   onBegin: () => void
 }) {
   return (
@@ -542,8 +620,8 @@ function GalleryIntroduction({
       {exhibition.introduction
         ? <p>{exhibition.introduction}</p>
         : <p className="gallery-information__empty-copy">No introduction has been provided.</p>}
-      <button className="button" type="button" disabled={artworkCount === 0} onClick={onBegin}>
-        Begin tour
+      <button className="button" type="button" disabled={!allowEmptyAction && artworkCount === 0} onClick={onBegin}>
+        {actionLabel}
       </button>
       {artworkCount === 0 && <p className="gallery-information__empty-copy">No artworks are available to tour.</p>}
     </section>
@@ -674,8 +752,25 @@ function useReducedMotion() {
   return reducedMotion
 }
 
+function useNarrowGalleryViewport() {
+  const [narrowViewport, setNarrowViewport] = useState(() => matchesNarrowGalleryViewport())
+  useEffect(() => {
+    const query = window.matchMedia?.(NARROW_GALLERY_MEDIA_QUERY)
+    if (!query) return
+    const updateViewport = () => setNarrowViewport(query.matches)
+    query.addEventListener('change', updateViewport)
+    updateViewport()
+    return () => query.removeEventListener('change', updateViewport)
+  }, [])
+  return narrowViewport
+}
+
 function prefersReducedMotion() {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+}
+
+function matchesNarrowGalleryViewport() {
+  return typeof window !== 'undefined' && window.matchMedia?.(NARROW_GALLERY_MEDIA_QUERY).matches === true
 }
 
 function GalleryRoom() {

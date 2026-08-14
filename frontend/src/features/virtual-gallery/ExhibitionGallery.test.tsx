@@ -19,6 +19,7 @@ const canvasState = vi.hoisted(() => ({
   renderScene: false,
   rendererFactoryCalls: 0,
   cleanupCalls: 0,
+  canvasUnmountCalls: 0,
   sessions: new Map<number, CanvasSession>(),
 }))
 
@@ -88,6 +89,10 @@ vi.mock('@react-three/fiber', () => ({
         canvasState.cleanupCalls += 1
       }
     }, [gl, onCreated, rendererFails])
+
+    useEffect(() => () => {
+      canvasState.canvasUnmountCalls += 1
+    }, [])
 
     return (
       <div data-testid="gallery-canvas" data-gallery-attempt={attempt}>
@@ -196,6 +201,43 @@ function canvasSession(attempt: number): CanvasSession {
   return session
 }
 
+function expectBefore(first: Element, second: Element) {
+  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+}
+
+function useGalleryViewport(initiallyNarrow: boolean) {
+  let narrow = initiallyNarrow
+  const listeners = new Set<(event: MediaQueryListEvent) => void>()
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => {
+    const isGalleryQuery = query === '(max-width: 42rem)'
+    return {
+      get matches() {
+        return isGalleryQuery ? narrow : false
+      },
+      media: query,
+      onchange: null,
+      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        if (isGalleryQuery) listeners.add(listener)
+      },
+      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        if (isGalleryQuery) listeners.delete(listener)
+      },
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => true,
+    } as MediaQueryList
+  }))
+  return {
+    resizeTo(nextNarrow: boolean) {
+      narrow = nextNarrow
+      act(() => listeners.forEach((listener) => listener({
+        matches: narrow,
+        media: '(max-width: 42rem)',
+      } as MediaQueryListEvent)))
+    },
+  }
+}
+
 afterEach(() => {
   cleanup()
   canvasState.sceneFailure = false
@@ -203,14 +245,208 @@ afterEach(() => {
   canvasState.renderScene = false
   canvasState.rendererFactoryCalls = 0
   canvasState.cleanupCalls = 0
+  canvasState.canvasUnmountCalls = 0
   canvasState.sessions.clear()
   textureState.failedUrls.clear()
   textureState.calls.clear()
   textureState.clearCalls.length = 0
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe('ExhibitionGallery renderer recovery', () => {
+  it('defers narrow renderer and texture work until explicit entry', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    canvasState.renderScene = true
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+    ])
+
+    expect(screen.getByRole('heading', { name: 'Gallery test' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'About this exhibition' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enter virtual gallery' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'View as standard gallery' })).toBeEnabled()
+    expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toBeInTheDocument()
+    expect(screen.queryByTestId('gallery-canvas')).not.toBeInTheDocument()
+    expect(textureState.calls.size).toBe(0)
+  })
+
+  it('keeps desktop renderer startup automatic', () => {
+    useGalleryViewport(false)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderGallery()
+
+    expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '0')
+    expect(screen.getByText('Preparing the 3D gallery…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enter virtual gallery' })).not.toBeInTheDocument()
+  })
+
+  it('places narrow active navigation between the heading actions and Canvas in DOM order', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+      '/api/artwork-images/cleveland/third/display',
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+
+    const header = document.querySelector('.virtual-gallery__header')
+    const navigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+    const canvas = screen.getByTestId('gallery-canvas')
+    if (!header) throw new Error('Virtual gallery header was not rendered.')
+    expectBefore(header, navigation)
+    expectBefore(navigation, canvas)
+    expect(navigation).toHaveTextContent('Artwork 1 of 3: Artwork 1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    expect(navigation).toHaveTextContent('Artwork 2 of 3: Artwork 2')
+    fireEvent.click(screen.getByRole('button', { name: 'Previous artwork' }))
+    expect(navigation).toHaveTextContent('Artwork 1 of 3: Artwork 1')
+  })
+
+  it('keeps desktop Canvas before active navigation in DOM order', () => {
+    useGalleryViewport(false)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+    ])
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+
+    const header = document.querySelector('.virtual-gallery__header')
+    const canvas = screen.getByTestId('gallery-canvas')
+    const navigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+    if (!header) throw new Error('Virtual gallery header was not rendered.')
+    expectBefore(header, canvas)
+    expectBefore(canvas, navigation)
+  })
+
+  it('keeps narrow information Escape closure connected to the exact trigger', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+
+    const trigger = screen.getByRole('button', { name: 'Open information for artwork 1 of 2: Artwork 1' })
+    const dialogId = trigger.getAttribute('aria-controls')
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Artwork 1' })
+    expect(dialog).toHaveAttribute('id', dialogId)
+    expect(dialog).toHaveFocus()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveAccessibleName('Open information for artwork 1 of 2: Artwork 1')
+  })
+
+  it('enters a narrow virtual gallery once by click or keyboard', async () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    const clickView = renderGallery()
+
+    const clickEntry = screen.getByRole('button', { name: 'Enter virtual gallery' })
+    fireEvent.click(clickEntry)
+    fireEvent.click(clickEntry)
+    expect(screen.getAllByTestId('gallery-canvas')).toHaveLength(1)
+    expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '0')
+    expect(canvasState.sessions.size).toBe(1)
+    clickView.unmount()
+
+    canvasState.sessions.clear()
+    renderGallery()
+    const keyboardEntry = screen.getByRole('button', { name: 'Enter virtual gallery' })
+    keyboardEntry.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.getAllByTestId('gallery-canvas')).toHaveLength(1)
+    expect(canvasState.sessions.size).toBe(1)
+  })
+
+  it('uses existing renderer recovery when narrow entry fails', async () => {
+    useGalleryViewport(true)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    canvasState.rendererFailure = true
+    renderGallery()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+
+    await waitFor(() => expect(recoveryPanel()).toHaveTextContent('The 3D gallery could not start.'))
+    expect(screen.getByRole('button', { name: 'Try 3D again' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enter virtual gallery' })).not.toBeInTheDocument()
+  })
+
+  it('returns from standard mode to narrow pre-entry without bypassing explicit entry', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderGallery()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
+    expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
+    expect(screen.queryByTestId('gallery-canvas')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
+
+    expect(screen.getByRole('button', { name: 'Enter virtual gallery' })).toBeEnabled()
+    expect(screen.queryByTestId('gallery-canvas')).not.toBeInTheDocument()
+  })
+
+  it('resets narrow entry when the exhibition session changes', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    const view = render(textureGalleryElement(exhibition))
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+    expect(screen.getByTestId('gallery-canvas')).toBeInTheDocument()
+
+    view.rerender(textureGalleryElement({ ...exhibition, id: 2, title: 'Next gallery' }))
+
+    expect(screen.queryByTestId('gallery-canvas')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enter virtual gallery' })).toBeEnabled()
+    expect(screen.getByRole('heading', { name: 'Next gallery' })).toBeInTheDocument()
+  })
+
+  it('moves active navigation without tearing down a running renderer after crossing to the narrow breakpoint', () => {
+    const viewport = useGalleryViewport(false)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderGallery()
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+    const originalCanvas = screen.getByTestId('gallery-canvas')
+    const originalNavigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+    const canvasUnmountCallsBeforeResize = canvasState.canvasUnmountCalls
+    expectBefore(originalCanvas, originalNavigation)
+
+    viewport.resizeTo(true)
+
+    expect(screen.getByTestId('gallery-canvas')).toBe(originalCanvas)
+    expect(screen.getByRole('navigation', { name: 'Artwork navigation' })).toBe(originalNavigation)
+    expectBefore(originalNavigation, originalCanvas)
+    expect(originalNavigation).toHaveFocus()
+    expect(canvasState.canvasUnmountCalls).toBe(canvasUnmountCallsBeforeResize)
+    expect(screen.queryByRole('button', { name: 'Enter virtual gallery' })).not.toBeInTheDocument()
+  })
+
+  it('skips narrow entry when WebGL is unavailable', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(false)
+    renderGallery()
+
+    expect(recoveryPanel()).toHaveTextContent('3D gallery is unavailable in this browser.')
+    expect(screen.queryByRole('button', { name: 'Enter virtual gallery' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('gallery-canvas')).not.toBeInTheDocument()
+  })
+
   it('keeps exactly one public H1 through renderer loading, ready, retry, degradation, and standard mode', () => {
     vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
     renderPublicHeadingGallery()
@@ -436,7 +672,57 @@ describe('ExhibitionGallery renderer recovery', () => {
     expect(screen.getByRole('region', { name: 'Viewing the standard gallery' })).toHaveFocus()
     expect(screen.queryByRole('region', { name: 'Showing the standard gallery' })).not.toBeInTheDocument()
     expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Return to virtual gallery' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Try 3D again' })).not.toBeInTheDocument()
     expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('returns from standard mode with a fresh renderer while preserving artwork 3', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+      '/api/artwork-images/cleveland/third/display',
+      '/api/artwork-images/cleveland/fourth/display',
+    ])
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Artwork 3 of 4: Artwork 3')
+
+    const cleanupCallsBeforeStandardMode = canvasState.cleanupCalls
+    fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
+
+    expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()
+    expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '1')
+    expect(canvasState.cleanupCalls).toBeGreaterThan(cleanupCallsBeforeStandardMode)
+    markRendererReady()
+    expect(screen.getByRole('status')).toHaveTextContent('Artwork 3 of 4: Artwork 3')
+    expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
+  })
+
+  it('keeps degraded retry distinct and resets an active tour to its introduction', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+      '/api/artwork-images/cleveland/third/display',
+    ])
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lose renderer context' }))
+    expect(screen.getByRole('button', { name: 'Try 3D again' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Return to virtual gallery' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try 3D again' }))
+    markRendererReady()
+
+    expect(screen.getByRole('button', { name: 'Begin tour' })).toBeEnabled()
+    expect(screen.queryByRole('navigation', { name: 'Artwork navigation' })).not.toBeInTheDocument()
   })
 
   it('does not promote a loading attempt to ready when standard mode is selected', () => {
@@ -449,8 +735,14 @@ describe('ExhibitionGallery renderer recovery', () => {
 
     expect(screen.getByRole('region', { name: 'Viewing the standard gallery' })).toHaveFocus()
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Try 3D again' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
     expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()
+    expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '1')
+    loadingAttempt.onCreated?.()
+    loadingAttempt.onContextLost?.()
+    expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()
+    act(() => canvasSession(1).onCreated?.())
+    expect(screen.getByRole('button', { name: 'Begin tour' })).toBeEnabled()
   })
 
   it('uses the same recovery labels with public and curator fallback content', () => {
@@ -598,6 +890,37 @@ describe('ExhibitionGallery texture recovery', () => {
     expect(textureAttempt(102, 0)).toBeInTheDocument()
     expect(textureAttempt(102, 1)).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Gallery test' })).toHaveFocus()
+  })
+
+  it('keeps texture recovery independent when returning manually from standard mode', async () => {
+    enableTextureScene()
+    textureState.failedUrls.add(firstUrl)
+    renderTextureGallery([firstUrl, secondUrl])
+
+    await waitForUnavailableCount(1)
+    markRendererReady()
+    expect(textureAttempt(101, 0)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
+    markRendererReady()
+
+    expect(textureState.clearCalls).toEqual([])
+    expect(screen.getByRole('region', { name: 'Unavailable artwork images' })).toHaveTextContent(
+      '1 artwork image is unavailable in the 3D gallery.',
+    )
+    expect(textureAttempt(101, 0)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
+
+    textureState.failedUrls.delete(firstUrl)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry unavailable images' }))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Unavailable artwork images' })).not.toBeInTheDocument())
+    expect(textureState.clearCalls).toEqual([firstUrl])
+    expect(textureAttempt(101, 1)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
+    expect(textureAttempt(102, 1)).not.toBeInTheDocument()
   })
 
   it('keeps a repeated texture failure retryable and supports keyboard retry after the image recovers', async () => {
