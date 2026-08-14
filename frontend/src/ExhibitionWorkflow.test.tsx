@@ -724,7 +724,10 @@ describe('exhibition create and edit workflow', () => {
 
     await screen.findByLabelText(/title/i)
     await userEvent.click(screen.getByRole('button', { name: 'Delete exhibition' }))
-    expect(screen.getByText('Delete this draft exhibition? This cannot be undone.')).toBeInTheDocument()
+    const confirmation = screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' })
+    expect(confirmation).toHaveAttribute('aria-modal', 'false')
+    expect(confirmation).toHaveAccessibleDescription('Delete this draft exhibition? This cannot be undone.')
+    expect(screen.getByRole('button', { name: 'Confirm deletion' })).toHaveFocus()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     await userEvent.click(screen.getByRole('button', { name: 'Confirm deletion' }))
 
@@ -744,8 +747,23 @@ describe('exhibition create and edit workflow', () => {
     expect(screen.getByRole('button', { name: 'Confirm deletion' })).toHaveFocus()
     await userEvent.click(keep)
 
+    expect(screen.getByRole('button', { name: 'Delete exhibition' })).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels deletion with Escape and restores the exact trigger', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    await screen.findByLabelText(/title/i)
     const deleteButton = screen.getByRole('button', { name: 'Delete exhibition' })
-    expect(deleteButton).toHaveFocus()
+    await userEvent.click(deleteButton)
+    const confirmation = screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' })
+    await userEvent.keyboard('{Escape}')
+
+    expect(confirmation).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete exhibition' })).toHaveFocus()
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -761,6 +779,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm deletion' }))
 
     expect(await screen.findByText('Please try again.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' })).toBeInTheDocument()
     expect(screen.getByLabelText(/title/i)).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Confirm deletion' })).toBeEnabled()
   })
@@ -778,6 +797,10 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(confirm)
     await userEvent.click(confirm)
 
+    expect(screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' }))
+      .toHaveAttribute('aria-busy', 'true')
+    expect(confirm).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Keep exhibition' })).toBeDisabled()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 

@@ -28,8 +28,13 @@ export function PublicCataloguePage() {
         )}
         {data && data.length > 0 && (
           <div className="exhibition-grid">
-            {data.map((exhibition) => (
-              <ExhibitionCard key={exhibition.id} exhibition={exhibition} />
+            {data.map((exhibition, index) => (
+              <ExhibitionCard
+                key={exhibition.id}
+                exhibition={exhibition}
+                position={index + 1}
+                exhibitionCount={data.length}
+              />
             ))}
           </div>
         )}

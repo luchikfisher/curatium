@@ -1,5 +1,6 @@
 import type { PublicExhibitionDetail, PublicExhibitionItem } from './types'
 import { ArtworkImage } from '../../components/ArtworkImage'
+import { ArtworkSourceLink } from '../../components/ArtworkSourceLink'
 
 export function PublicExhibitionContent({ exhibition }: { exhibition: PublicExhibitionDetail }) {
   const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
@@ -99,15 +100,7 @@ function PublicArtwork({ item, itemCount }: { item: PublicExhibitionItem; itemCo
             )}
           </section>
           {artwork.sourceUrl ? (
-            <a
-              className="text-link"
-              href={artwork.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`View source for ${descriptor}`}
-            >
-              View artwork source
-            </a>
+            <ArtworkSourceLink href={artwork.sourceUrl} descriptor={descriptor} />
           ) : (
             <p className="public-exhibition__source-unavailable">Artwork source unavailable.</p>
           )}

@@ -29,8 +29,14 @@ export function CuratorExhibitionsPage() {
         )}
         {data && data.length > 0 && (
           <div className="exhibition-grid">
-            {data.map((exhibition) => (
-              <ExhibitionCard key={exhibition.id} exhibition={exhibition} curator />
+            {data.map((exhibition, index) => (
+              <ExhibitionCard
+                key={exhibition.id}
+                exhibition={exhibition}
+                curator
+                position={index + 1}
+                exhibitionCount={data.length}
+              />
             ))}
           </div>
         )}

@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { EmptyState, LoadingState } from '../components/AsyncState'
 import { ArtworkImage } from '../components/ArtworkImage'
+import { ArtworkSourceLink } from '../components/ArtworkSourceLink'
+import { InlineDestructiveConfirmation } from '../components/InlineDestructiveConfirmation'
 import { ValidationSummary, type ValidationFeedback } from '../components/ValidationSummary'
 import {
   AuthoritativeReconciliationNotice,
@@ -109,7 +111,6 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const reconciliationFocusOrigin = useRef<HTMLElement | null>(null)
   const searchRequest = useRef(0)
   const lastSearch = useRef<{ query: string; page: number } | null>(null)
-  const confirmRemovalButtonRef = useRef<HTMLButtonElement | null>(null)
   const removeButtonRefs = useRef(new Map<number, HTMLButtonElement>())
   const restoreRemovalFocus = useRef<number | null>(null)
   const searchUrlState = parseArtworkSearchUrl(location.search)
@@ -251,9 +252,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     searchUrlState.searchable,
   ])
   useEffect(() => {
-    if (removingItemId !== null) {
-      confirmRemovalButtonRef.current?.focus()
-    } else if (restoreRemovalFocus.current !== null) {
+    if (removingItemId === null && restoreRemovalFocus.current !== null) {
       removeButtonRefs.current.get(restoreRemovalFocus.current)?.focus()
       restoreRemovalFocus.current = null
     }
@@ -909,7 +908,6 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
                   if (button) removeButtonRefs.current.set(item.id, button)
                   else removeButtonRefs.current.delete(item.id)
                 }}
-                confirmRemovalButtonRef={confirmRemovalButtonRef}
               />
             ))}
           </ol>
@@ -1045,9 +1043,11 @@ function PublishedArtworkSummary({
           </section>
         )}
         {item.artwork.sourceUrl && (
-          <a className="text-link published-artwork-summary__source" href={item.artwork.sourceUrl} target="_blank" rel="noreferrer">
-            View artwork source
-          </a>
+          <ArtworkSourceLink
+            className="text-link published-artwork-summary__source"
+            href={item.artwork.sourceUrl}
+            descriptor={`artwork ${item.position} of ${itemCount}: ${item.artwork.title}`}
+          />
         )}
       </article>
     </li>
@@ -1075,7 +1075,6 @@ function CurrentArtworkItem({
   onRemove,
   onCancelRemoval,
   removeButtonRef,
-  confirmRemovalButtonRef,
 }: {
   item: ExhibitionItem
   itemCount: number
@@ -1097,7 +1096,6 @@ function CurrentArtworkItem({
   onRemove: (item: ExhibitionItem) => void
   onCancelRemoval: () => void
   removeButtonRef: (button: HTMLButtonElement | null) => void
-  confirmRemovalButtonRef: React.RefObject<HTMLButtonElement | null>
 }) {
   const noteId = `curatorial-note-${item.id}`
   const noteErrorId = `${noteId}-error`
@@ -1181,15 +1179,19 @@ function CurrentArtworkItem({
               Remove artwork
             </button>
           ) : (
-            <div className="item-removal-confirmation" role="alert">
-              <p>Remove {item.artwork.title} from this exhibition? This cannot be undone.</p>
-              <button aria-label={isRemoving ? `Removing ${artworkDescriptor}` : `Confirm removal of ${artworkDescriptor}`} ref={confirmRemovalButtonRef} className="button button-danger" type="button" disabled={isBusy} onClick={() => onRemove(item)}>
-                {isRemoving ? 'Removing…' : 'Confirm removal'}
-              </button>
-              <button aria-label={`Keep ${artworkDescriptor} in exhibition`} className="button button-secondary" type="button" disabled={isBusy} onClick={onCancelRemoval}>
-                Keep artwork
-              </button>
-            </div>
+            <InlineDestructiveConfirmation
+              className="item-removal-confirmation"
+              name={`Remove ${artworkDescriptor}?`}
+              description={`Remove ${item.artwork.title} from this exhibition? This cannot be undone.`}
+              confirmLabel="Confirm removal"
+              pendingLabel="Removing…"
+              cancelLabel="Keep artwork"
+              confirmAccessibleName={isRemoving ? `Removing ${artworkDescriptor}` : `Confirm removal of ${artworkDescriptor}`}
+              cancelAccessibleName={`Keep ${artworkDescriptor} in exhibition`}
+              pending={isBusy}
+              onConfirm={() => onRemove(item)}
+              onCancel={onCancelRemoval}
+            />
           )}
         </div>
       </article>
@@ -1249,8 +1251,9 @@ function SearchContent({
         {results.items.length} {results.items.length === 1 ? 'result' : 'results'} on page {results.page}.
       </p>
       <div className="museum-results__grid">
-        {results.items.map((artwork) => {
+        {results.items.map((artwork, index) => {
           const alreadyAdded = isAlreadyAdded(artwork)
+          const artworkDescriptor = `artwork ${index + 1} of ${results.items.length}: ${artwork.title}`
           const disabled = alreadyAdded || isReadOnly || atCapacity || addingExternalId !== null || itemMutationInProgress || coverMutationInProgress
           return (
             <article className="museum-artwork-card" key={artworkKey(artwork)}>
@@ -1269,7 +1272,15 @@ function SearchContent({
                 {alreadyAdded ? (
                   <p className="artwork-card__added">Already added</p>
                 ) : (
-                  <button className="button" type="button" disabled={disabled} onClick={() => onAdd(artwork)}>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={disabled}
+                    aria-label={addingExternalId === artwork.externalId
+                      ? `Adding ${artworkDescriptor}`
+                      : `Add ${artworkDescriptor}`}
+                    onClick={() => onAdd(artwork)}
+                  >
                     {addingExternalId === artwork.externalId ? 'Adding…' : 'Add artwork'}
                   </button>
                 )}

@@ -5,9 +5,13 @@ import type { ExhibitionSummary } from '../features/exhibitions/types'
 export function ExhibitionCard({
   exhibition,
   curator = false,
+  position,
+  exhibitionCount,
 }: {
   exhibition: ExhibitionSummary
   curator?: boolean
+  position: number
+  exhibitionCount: number
 }) {
   const destination = curator
     ? `/exhibitions/${exhibition.id}/edit`
@@ -15,6 +19,10 @@ export function ExhibitionCard({
   const count = `${exhibition.artworkCount} ${
     exhibition.artworkCount === 1 ? 'artwork' : 'artworks'
   }`
+  const visibleAction = curator
+    ? exhibition.status === 'PUBLISHED' ? 'Manage exhibition' : 'Edit exhibition'
+    : 'Enter exhibition'
+  const actionName = `${visibleAction} ${position} of ${exhibitionCount}: ${exhibition.title}`
 
   return (
     <article className="exhibition-card">
@@ -40,10 +48,8 @@ export function ExhibitionCard({
             </time>
           )}
         </div>
-        <Link className="text-link" to={destination}>
-          {curator
-            ? exhibition.status === 'PUBLISHED' ? 'Manage exhibition' : 'Edit exhibition'
-            : 'Enter exhibition'}
+        <Link className="text-link" to={destination} aria-label={actionName}>
+          {visibleAction}
           <span aria-hidden="true"> →</span>
         </Link>
       </div>

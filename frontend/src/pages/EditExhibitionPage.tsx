@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams, useNavigate } from 'react-router-dom'
 import { isFrontendError, type FrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
+import { InlineDestructiveConfirmation } from '../components/InlineDestructiveConfirmation'
 import {
   AuthoritativeReconciliationNotice,
   type AuthoritativeReconciliationPhase,
@@ -56,7 +57,6 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   const authoringRegionRef = useRef<HTMLElement | null>(null)
   const reconciliationFocusOrigin = useRef<HTMLElement | null>(null)
   const deleteButtonRef = useRef<HTMLButtonElement | null>(null)
-  const confirmDeleteButtonRef = useRef<HTMLButtonElement | null>(null)
   const restoreDeleteFocus = useRef(false)
 
   const loadedExhibition = exhibition?.id === exhibitionId ? exhibition : null
@@ -88,9 +88,7 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
     navigate(location.pathname, { replace: true, state: null })
   }, [exhibitionId, loadedExhibition, location.pathname, location.state, navigate])
   useEffect(() => {
-    if (confirmingDelete) {
-      confirmDeleteButtonRef.current?.focus()
-    } else if (restoreDeleteFocus.current) {
+    if (!confirmingDelete && restoreDeleteFocus.current) {
       deleteButtonRef.current?.focus()
       restoreDeleteFocus.current = false
     }
@@ -271,15 +269,17 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
               Delete exhibition
             </button>
           ) : (
-            <div className="delete-confirmation" role="alert">
-              <p>Delete this draft exhibition? This cannot be undone.</p>
-              <button ref={confirmDeleteButtonRef} className="button button-danger" type="button" disabled={busy} onClick={deleteExhibition}>
-                {deleting ? 'Deleting…' : 'Confirm deletion'}
-              </button>
-              <button className="button button-secondary" type="button" disabled={busy} onClick={cancelDeletion}>
-                Keep exhibition
-              </button>
-            </div>
+            <InlineDestructiveConfirmation
+              className="delete-confirmation"
+              name={`Delete draft exhibition: ${currentExhibition.title}?`}
+              description="Delete this draft exhibition? This cannot be undone."
+              confirmLabel="Confirm deletion"
+              pendingLabel="Deleting…"
+              cancelLabel="Keep exhibition"
+              pending={deleting}
+              onConfirm={deleteExhibition}
+              onCancel={cancelDeletion}
+            />
           )}
         </section>
       )}

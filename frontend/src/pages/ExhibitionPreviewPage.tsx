@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArtworkImage } from '../components/ArtworkImage'
+import { ArtworkSourceLink } from '../components/ArtworkSourceLink'
 import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
@@ -429,7 +430,12 @@ function PreviewArtwork({ item, itemCount }: { item: ExhibitionItem; itemCount: 
           {artwork.mediumDisplay && <p>{artwork.mediumDisplay}</p>}
           {artwork.creditLine && <p>{artwork.creditLine}</p>}
           <p>{artwork.publicDomain ? 'Public domain' : 'Rights status unavailable'}</p>
-          {artwork.sourceUrl && <a className="text-link" href={artwork.sourceUrl} target="_blank" rel="noreferrer">View artwork source</a>}
+          {artwork.sourceUrl && (
+            <ArtworkSourceLink
+              href={artwork.sourceUrl}
+              descriptor={`artwork ${item.position} of ${itemCount}: ${artwork.title}`}
+            />
+          )}
           <section className="preview-artwork__note" aria-label={`Curatorial note for artwork ${item.position} of ${itemCount}: ${artwork.title}`}>
             <h4>Curatorial note</h4>
             {item.curatorialNote

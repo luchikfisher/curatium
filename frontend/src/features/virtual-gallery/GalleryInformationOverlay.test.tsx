@@ -81,7 +81,10 @@ describe('gallery information overlay', () => {
     expect(overlay).toHaveTextContent('Medium 1')
     expect(overlay).toHaveTextContent('Credit 1')
     expect(overlay).toHaveTextContent('Note for artwork 1.')
-    expect(screen.getByRole('link', { name: 'View source for artwork 1 of 2: First' })).toHaveAttribute('href', 'https://museum.example/1')
+    const source = screen.getByRole('link', { name: 'View source for artwork 1 of 2: First (opens in a new tab)' })
+    expect(source).toHaveAttribute('href', 'https://museum.example/1')
+    expect(source).toHaveAttribute('target', '_blank')
+    expect(source).toHaveAttribute('rel', 'noreferrer')
     expect(overlay).toHaveFocus()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close information for artwork 1 of 2: First' }))
@@ -129,7 +132,7 @@ describe('gallery information overlay', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
     expect(screen.getByRole('button', { name: 'Open information for artwork 2 of 2: Untitled' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open information for artwork 2 of 2: Untitled' }))
-    expect(screen.getByRole('link', { name: 'View source for artwork 2 of 2: Untitled' })).toHaveAttribute('href', 'https://museum.example/2')
+    expect(screen.getByRole('link', { name: 'View source for artwork 2 of 2: Untitled (opens in a new tab)' })).toHaveAttribute('href', 'https://museum.example/2')
   })
 
   it('reports the final position in a ten-artwork exhibition', () => {

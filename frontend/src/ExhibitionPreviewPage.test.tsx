@@ -75,7 +75,7 @@ afterEach(() => {
 describe('curator exhibition preview', () => {
   it('renders a complete draft preview from curator detail data', async () => {
     const first = item(1)
-    const second = item(2, { title: 'Moonlit Harbor', artistDisplay: null, dateDisplay: null, mediumDisplay: null, creditLine: null })
+    const second = item(2, { title: 'Nocturne', artistDisplay: null, dateDisplay: null, mediumDisplay: null, creditLine: null })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({ items: [second, first], coverArtworkId: first.artwork.id }))))
     renderAt('/exhibitions/1/preview')
 
@@ -96,7 +96,13 @@ describe('curator exhibition preview', () => {
     expect(screen.getByText('Note for artwork 1.')).toBeInTheDocument()
     expect(screen.getByText('Artist unknown')).toBeInTheDocument()
     expect(screen.getAllByText('Public domain')).toHaveLength(2)
-    expect(screen.getAllByRole('link', { name: 'View artwork source' })[0]).toHaveAttribute('href', 'https://museum.example/artworks/154235')
+    const sourceLink = screen.getByRole('link', { name: 'View source for artwork 1 of 2: Nocturne (opens in a new tab)' })
+    expect(sourceLink).toHaveAttribute('href', 'https://museum.example/artworks/154235')
+    expect(sourceLink).toHaveAttribute('target', '_blank')
+    expect(sourceLink).toHaveAttribute('rel', 'noreferrer')
+    expect(screen.getByRole('link', {
+      name: 'View source for artwork 2 of 2: Nocturne (opens in a new tab)',
+    })).toHaveAttribute('href', 'https://museum.example/artworks/154235')
   })
 
   it('renders a complete published preview without using the public endpoint', async () => {

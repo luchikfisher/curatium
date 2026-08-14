@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -43,8 +43,49 @@ describe('route screens', () => {
     ])))
     renderAt('/exhibitions')
 
-    expect(await screen.findByRole('link', { name: 'Edit exhibition' })).toHaveAttribute('href', '/exhibitions/1/edit')
-    expect(screen.getByRole('link', { name: 'Manage exhibition' })).toHaveAttribute('href', '/exhibitions/2/edit')
+    expect(await screen.findByRole('link', { name: 'Edit exhibition 1 of 2: Draft exhibition' })).toHaveAttribute('href', '/exhibitions/1/edit')
+    expect(screen.getByRole('link', { name: 'Manage exhibition 2 of 2: Published exhibition' })).toHaveAttribute('href', '/exhibitions/2/edit')
+  })
+
+  it('gives duplicate-titled public and curator exhibition actions position-qualified names', async () => {
+    const duplicatePublic = [
+      summary('Untitled exhibition', 'PUBLISHED'),
+      { ...summary('Untitled exhibition', 'PUBLISHED'), id: 2 },
+    ]
+    const fetchMock = vi.fn().mockResolvedValueOnce(respond(duplicatePublic))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/')
+
+    expect(await screen.findByRole('link', { name: 'Enter exhibition 1 of 2: Untitled exhibition' }))
+      .toHaveAttribute('href', '/visit/1')
+    expect(screen.getByRole('link', { name: 'Enter exhibition 2 of 2: Untitled exhibition' }))
+      .toHaveAttribute('href', '/visit/2')
+
+    cleanup()
+    fetchMock.mockResolvedValueOnce(respond(duplicatePublic))
+    renderAt('/exhibitions')
+
+    expect(await screen.findByRole('link', { name: 'Manage exhibition 1 of 2: Untitled exhibition' }))
+      .toHaveAttribute('href', '/exhibitions/1/edit')
+    expect(screen.getByRole('link', { name: 'Manage exhibition 2 of 2: Untitled exhibition' }))
+      .toHaveAttribute('href', '/exhibitions/2/edit')
+  })
+
+  it.each([
+    ['/', 'Visit'],
+    ['/visit/1', 'Visit'],
+    ['/exhibitions', 'Curate'],
+    ['/exhibitions/1/artworks', 'Curate'],
+  ])('marks exactly one primary navigation item current on %s', (path, expectedCurrent) => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
+    renderAt(path)
+
+    const navigation = screen.getByRole('navigation', { name: 'Primary navigation' })
+    const links = within(navigation).getAllByRole('link')
+    expect(links.filter((link) => link.getAttribute('aria-current') === 'page')).toHaveLength(1)
+    expect(within(navigation).getByRole('link', { name: expectedCurrent })).toHaveAttribute('aria-current', 'page')
+    expect(within(navigation).getByRole('link', { name: 'Visit' })).toHaveAttribute('href', '/')
+    expect(within(navigation).getByRole('link', { name: 'Curate' })).toHaveAttribute('href', '/exhibitions')
   })
 
   it('shows the curator empty state', async () => {

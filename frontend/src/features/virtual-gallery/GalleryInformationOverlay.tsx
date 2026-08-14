@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { ArtworkSourceLink } from '../../components/ArtworkSourceLink'
 import type { SlottedArtwork } from './types'
 
 export function GalleryInformationOverlay({
@@ -49,7 +50,7 @@ export function GalleryInformationOverlay({
           : <p className="gallery-information__empty-copy">No curatorial note.</p>}
       </section>
       {artwork.sourceUrl
-        ? <a className="text-link" href={artwork.sourceUrl} target="_blank" rel="noreferrer" aria-label={`View source for ${descriptor}`}>View artwork source</a>
+        ? <ArtworkSourceLink href={artwork.sourceUrl} descriptor={descriptor} />
         : <p className="gallery-information__empty-copy">Artwork source unavailable.</p>}
     </section>
   )
