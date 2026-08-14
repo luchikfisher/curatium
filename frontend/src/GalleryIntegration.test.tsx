@@ -109,6 +109,19 @@ function renderAt(path: string) {
   return render(<App />)
 }
 
+function useNarrowGalleryViewport() {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    matches: query === '(max-width: 42rem)',
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  } as MediaQueryList)))
+}
+
 afterEach(() => {
   cleanup()
   galleryIntegrationState.webglSupported = false
@@ -127,6 +140,37 @@ describe('gallery integration', () => {
 
     renderAt('/exhibitions/2/preview')
     expect(await screen.findByRole('region', { name: 'Showing the standard gallery' })).toHaveTextContent('3D gallery is unavailable in this browser.')
+  })
+
+  it('defers narrow entry consistently without changing public or curator routes', async () => {
+    useNarrowGalleryViewport()
+    galleryIntegrationState.webglSupported = true
+    vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve(response(
+      path === '/api/public/exhibitions/1' ? publicDetail : curatorDetail,
+    ))))
+
+    const publicView = renderAt('/visit/1')
+    const publicEntry = await screen.findByRole('button', { name: 'Enter virtual gallery' })
+    expect(screen.queryByTestId('integration-gallery-canvas')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View as standard gallery' })).toBeEnabled()
+    expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toBeInTheDocument()
+    const publicUrl = window.location.href
+    const publicHistoryLength = window.history.length
+    const publicHistoryState = window.history.state
+
+    fireEvent.click(publicEntry)
+
+    expect(screen.getAllByTestId('integration-gallery-canvas')).toHaveLength(1)
+    expect(window.location.href).toBe(publicUrl)
+    expect(window.history.length).toBe(publicHistoryLength)
+    expect(window.history.state).toBe(publicHistoryState)
+    publicView.unmount()
+
+    renderAt('/exhibitions/2/preview')
+    expect(await screen.findByRole('button', { name: 'Enter virtual gallery' })).toBeEnabled()
+    expect(screen.queryByTestId('integration-gallery-canvas')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View as standard gallery' })).toBeEnabled()
+    expect(screen.getByRole('link', { name: 'Return to exhibition editor' })).toHaveAttribute('href', '/exhibitions/2/edit')
   })
 
   it('keeps manual mode return local and consistent across public and curator galleries', async () => {
