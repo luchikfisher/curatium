@@ -19,6 +19,7 @@ const canvasState = vi.hoisted(() => ({
   renderScene: false,
   rendererFactoryCalls: 0,
   cleanupCalls: 0,
+  canvasUnmountCalls: 0,
   sessions: new Map<number, CanvasSession>(),
 }))
 
@@ -88,6 +89,10 @@ vi.mock('@react-three/fiber', () => ({
         canvasState.cleanupCalls += 1
       }
     }, [gl, onCreated, rendererFails])
+
+    useEffect(() => () => {
+      canvasState.canvasUnmountCalls += 1
+    }, [])
 
     return (
       <div data-testid="gallery-canvas" data-gallery-attempt={attempt}>
@@ -196,6 +201,10 @@ function canvasSession(attempt: number): CanvasSession {
   return session
 }
 
+function expectBefore(first: Element, second: Element) {
+  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+}
+
 function useGalleryViewport(initiallyNarrow: boolean) {
   let narrow = initiallyNarrow
   const listeners = new Set<(event: MediaQueryListEvent) => void>()
@@ -236,6 +245,7 @@ afterEach(() => {
   canvasState.renderScene = false
   canvasState.rendererFactoryCalls = 0
   canvasState.cleanupCalls = 0
+  canvasState.canvasUnmountCalls = 0
   canvasState.sessions.clear()
   textureState.failedUrls.clear()
   textureState.calls.clear()
@@ -271,6 +281,75 @@ describe('ExhibitionGallery renderer recovery', () => {
     expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '0')
     expect(screen.getByText('Preparing the 3D gallery…')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Enter virtual gallery' })).not.toBeInTheDocument()
+  })
+
+  it('places narrow active navigation between the heading actions and Canvas in DOM order', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+      '/api/artwork-images/cleveland/third/display',
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+
+    const header = document.querySelector('.virtual-gallery__header')
+    const navigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+    const canvas = screen.getByTestId('gallery-canvas')
+    if (!header) throw new Error('Virtual gallery header was not rendered.')
+    expectBefore(header, navigation)
+    expectBefore(navigation, canvas)
+    expect(navigation).toHaveTextContent('Artwork 1 of 3: Artwork 1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    expect(navigation).toHaveTextContent('Artwork 2 of 3: Artwork 2')
+    fireEvent.click(screen.getByRole('button', { name: 'Previous artwork' }))
+    expect(navigation).toHaveTextContent('Artwork 1 of 3: Artwork 1')
+  })
+
+  it('keeps desktop Canvas before active navigation in DOM order', () => {
+    useGalleryViewport(false)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+    ])
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+
+    const header = document.querySelector('.virtual-gallery__header')
+    const canvas = screen.getByTestId('gallery-canvas')
+    const navigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+    if (!header) throw new Error('Virtual gallery header was not rendered.')
+    expectBefore(header, canvas)
+    expectBefore(canvas, navigation)
+  })
+
+  it('keeps narrow information Escape closure connected to the exact trigger', () => {
+    useGalleryViewport(true)
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+
+    const trigger = screen.getByRole('button', { name: 'Open information for artwork 1 of 2: Artwork 1' })
+    const dialogId = trigger.getAttribute('aria-controls')
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Artwork 1' })
+    expect(dialog).toHaveAttribute('id', dialogId)
+    expect(dialog).toHaveFocus()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveAccessibleName('Open information for artwork 1 of 2: Artwork 1')
   })
 
   it('enters a narrow virtual gallery once by click or keyboard', async () => {
@@ -337,17 +416,24 @@ describe('ExhibitionGallery renderer recovery', () => {
     expect(screen.getByRole('heading', { name: 'Next gallery' })).toBeInTheDocument()
   })
 
-  it('does not tear down a running renderer after crossing to the narrow breakpoint', () => {
+  it('moves active navigation without tearing down a running renderer after crossing to the narrow breakpoint', () => {
     const viewport = useGalleryViewport(false)
     vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
     renderGallery()
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
     const originalCanvas = screen.getByTestId('gallery-canvas')
-    const cleanupCallsBeforeResize = canvasState.cleanupCalls
+    const originalNavigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+    const canvasUnmountCallsBeforeResize = canvasState.canvasUnmountCalls
+    expectBefore(originalCanvas, originalNavigation)
 
     viewport.resizeTo(true)
 
     expect(screen.getByTestId('gallery-canvas')).toBe(originalCanvas)
-    expect(canvasState.cleanupCalls).toBe(cleanupCallsBeforeResize)
+    expect(screen.getByRole('navigation', { name: 'Artwork navigation' })).toBe(originalNavigation)
+    expectBefore(originalNavigation, originalCanvas)
+    expect(originalNavigation).toHaveFocus()
+    expect(canvasState.canvasUnmountCalls).toBe(canvasUnmountCallsBeforeResize)
     expect(screen.queryByRole('button', { name: 'Enter virtual gallery' })).not.toBeInTheDocument()
   })
 

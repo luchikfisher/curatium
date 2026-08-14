@@ -88,11 +88,12 @@ function GalleryInstance({
   headingLevel?: 1 | 2
   exitAction: ReactNode
 }) {
+  const narrowGalleryViewport = useNarrowGalleryViewport()
   const [initialGalleryState] = useState(() => {
     const webGLSupported = supportsWebGL()
     return {
       webGLSupported,
-      awaitsEntry: webGLSupported && matchesNarrowGalleryViewport(),
+      awaitsEntry: webGLSupported && narrowGalleryViewport,
     }
   })
   const [mode, setMode] = useState<GalleryMode>(() => initialGalleryState.webGLSupported ? 'virtual' : 'standard')
@@ -204,15 +205,10 @@ function GalleryInstance({
 
   useEffect(() => {
     if (phase.kind !== 'awaiting-entry' || mode !== 'virtual') return
-    const query = window.matchMedia?.(NARROW_GALLERY_MEDIA_QUERY)
-    if (!query) return
-    const startOnWideViewport = () => {
-      if (!query.matches) enterVirtualGallery()
-    }
-    query.addEventListener('change', startOnWideViewport)
-    startOnWideViewport()
-    return () => query.removeEventListener('change', startOnWideViewport)
-  }, [enterVirtualGallery, mode, phase.kind])
+    if (narrowGalleryViewport) return
+    const startRenderer = window.setTimeout(enterVirtualGallery, 0)
+    return () => window.clearTimeout(startRenderer)
+  }, [enterVirtualGallery, mode, narrowGalleryViewport, phase.kind])
 
   const enterDegraded = useCallback((attempt: number, reason: GalleryDegradationReason, moveFocus: boolean) => {
     if (!virtualSessionActiveRef.current || attempt !== activeAttemptRef.current || degradationReasonRef.current !== null) return
@@ -340,6 +336,19 @@ function GalleryInstance({
   }
 
   const Heading = headingLevel === 1 ? 'h1' : 'h2'
+  const galleryNavigation = phase.kind === 'ready' && tourStarted ? (
+    <GalleryNavigation
+      key="gallery-navigation"
+      navigationRef={navigationRef}
+      assignments={assignments}
+      selectedIndex={currentSelectedIndex}
+      onSelect={setSelectedIndex}
+      onToggleInformation={informationOpen ? closeInformation : () => setInformationOpen(true)}
+      informationOpen={informationOpen}
+      informationDialogId={informationDialogId}
+      informationButtonRef={informationButtonRef}
+    />
+  ) : null
   return (
     <GalleryErrorBoundary
       resetKey={`${sessionKey}:${rendererAttempt}`}
@@ -357,7 +366,8 @@ function GalleryInstance({
             {exitAction}
           </div>
         </div>
-        <div className="virtual-gallery__experience">
+        {narrowGalleryViewport && galleryNavigation}
+        <div key="gallery-experience" className="virtual-gallery__experience">
           {phase.kind !== 'awaiting-entry' && (
             <GalleryCanvasSession
               attempt={rendererAttempt}
@@ -413,18 +423,7 @@ function GalleryInstance({
             retrying={phase.kind === 'retrying'}
           />
         )}
-        {phase.kind === 'ready' && tourStarted && (
-          <GalleryNavigation
-            navigationRef={navigationRef}
-            assignments={assignments}
-            selectedIndex={currentSelectedIndex}
-            onSelect={setSelectedIndex}
-            onToggleInformation={informationOpen ? closeInformation : () => setInformationOpen(true)}
-            informationOpen={informationOpen}
-            informationDialogId={informationDialogId}
-            informationButtonRef={informationButtonRef}
-          />
-        )}
+        {!narrowGalleryViewport && galleryNavigation}
       </section>
     </GalleryErrorBoundary>
   )
@@ -751,6 +750,19 @@ function useReducedMotion() {
     return () => query.removeEventListener('change', updatePreference)
   }, [])
   return reducedMotion
+}
+
+function useNarrowGalleryViewport() {
+  const [narrowViewport, setNarrowViewport] = useState(() => matchesNarrowGalleryViewport())
+  useEffect(() => {
+    const query = window.matchMedia?.(NARROW_GALLERY_MEDIA_QUERY)
+    if (!query) return
+    const updateViewport = () => setNarrowViewport(query.matches)
+    query.addEventListener('change', updateViewport)
+    updateViewport()
+    return () => query.removeEventListener('change', updateViewport)
+  }, [])
+  return narrowViewport
 }
 
 function prefersReducedMotion() {
