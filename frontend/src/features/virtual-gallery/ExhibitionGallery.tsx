@@ -191,7 +191,7 @@ function GalleryInstance({
     })
   }, [])
 
-  const retryThreeDimensionalGallery = useCallback(() => {
+  const startFreshRendererAttempt = useCallback((resetTour: boolean) => {
     if (!supportsWebGL()) {
       virtualSessionActiveRef.current = false
       degradationReasonRef.current = 'webgl-unavailable'
@@ -206,13 +206,23 @@ function GalleryInstance({
     virtualSessionActiveRef.current = true
     degradationReasonRef.current = null
     requestedFocusRef.current = 'virtual'
-    setTourStarted(false)
-    setSelectedIndex(-1)
+    if (resetTour) {
+      setTourStarted(false)
+      setSelectedIndex(-1)
+    }
     setInformationOpen(false)
     setRendererAttempt(nextAttempt)
     setPhase({ kind: 'retrying', attempt: nextAttempt })
     setMode('virtual')
   }, [])
+
+  const retryThreeDimensionalGallery = useCallback(() => {
+    startFreshRendererAttempt(true)
+  }, [startFreshRendererAttempt])
+
+  const returnToVirtualGallery = useCallback(() => {
+    startFreshRendererAttempt(false)
+  }, [startFreshRendererAttempt])
 
   const showStandardGallery = useCallback(() => {
     virtualSessionActiveRef.current = false
@@ -268,7 +278,7 @@ function GalleryInstance({
             onContinue={continueInStandardGallery}
           />
         ) : (
-          <GalleryStandardModePanel ref={standardModeRef} onRetry={retryThreeDimensionalGallery} />
+          <GalleryStandardModePanel ref={standardModeRef} onReturn={returnToVirtualGallery} />
         )}
         <div ref={standardContentRef} tabIndex={-1} aria-label="Standard gallery content">
           {fallback}
@@ -510,14 +520,14 @@ function createFailedRenderer(canvas: unknown): WebGLRenderer {
   } as unknown as WebGLRenderer
 }
 
-const GalleryStandardModePanel = ({ onRetry, ref }: { onRetry: () => void; ref: Ref<HTMLElement> }) => {
+const GalleryStandardModePanel = ({ onReturn, ref }: { onReturn: () => void; ref: Ref<HTMLElement> }) => {
   return (
     <section ref={ref} className="gallery-recovery gallery-recovery--standard" tabIndex={-1} aria-labelledby="gallery-standard-heading">
       <p className="eyebrow">Standard gallery</p>
       <h2 id="gallery-standard-heading">Viewing the standard gallery</h2>
       <p>You can return to the 3D gallery at any time.</p>
       <div className="gallery-recovery__actions">
-        <button className="button button-secondary" type="button" onClick={onRetry}>Try 3D again</button>
+        <button className="button button-secondary" type="button" onClick={onReturn}>Return to virtual gallery</button>
       </div>
     </section>
   )

@@ -436,7 +436,57 @@ describe('ExhibitionGallery renderer recovery', () => {
     expect(screen.getByRole('region', { name: 'Viewing the standard gallery' })).toHaveFocus()
     expect(screen.queryByRole('region', { name: 'Showing the standard gallery' })).not.toBeInTheDocument()
     expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Return to virtual gallery' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Try 3D again' })).not.toBeInTheDocument()
     expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('returns from standard mode with a fresh renderer while preserving artwork 3', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+      '/api/artwork-images/cleveland/third/display',
+      '/api/artwork-images/cleveland/fourth/display',
+    ])
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Artwork 3 of 4: Artwork 3')
+
+    const cleanupCallsBeforeStandardMode = canvasState.cleanupCalls
+    fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
+
+    expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()
+    expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '1')
+    expect(canvasState.cleanupCalls).toBeGreaterThan(cleanupCallsBeforeStandardMode)
+    markRendererReady()
+    expect(screen.getByRole('status')).toHaveTextContent('Artwork 3 of 4: Artwork 3')
+    expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
+  })
+
+  it('keeps degraded retry distinct and resets an active tour to its introduction', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderTextureGallery([
+      '/api/artwork-images/cleveland/first/display',
+      '/api/artwork-images/cleveland/second/display',
+      '/api/artwork-images/cleveland/third/display',
+    ])
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lose renderer context' }))
+    expect(screen.getByRole('button', { name: 'Try 3D again' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Return to virtual gallery' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try 3D again' }))
+    markRendererReady()
+
+    expect(screen.getByRole('button', { name: 'Begin tour' })).toBeEnabled()
+    expect(screen.queryByRole('navigation', { name: 'Artwork navigation' })).not.toBeInTheDocument()
   })
 
   it('does not promote a loading attempt to ready when standard mode is selected', () => {
@@ -449,8 +499,14 @@ describe('ExhibitionGallery renderer recovery', () => {
 
     expect(screen.getByRole('region', { name: 'Viewing the standard gallery' })).toHaveFocus()
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Try 3D again' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
     expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()
+    expect(screen.getByTestId('gallery-canvas')).toHaveAttribute('data-gallery-attempt', '1')
+    loadingAttempt.onCreated?.()
+    loadingAttempt.onContextLost?.()
+    expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()
+    act(() => canvasSession(1).onCreated?.())
+    expect(screen.getByRole('button', { name: 'Begin tour' })).toBeEnabled()
   })
 
   it('uses the same recovery labels with public and curator fallback content', () => {
@@ -598,6 +654,37 @@ describe('ExhibitionGallery texture recovery', () => {
     expect(textureAttempt(102, 0)).toBeInTheDocument()
     expect(textureAttempt(102, 1)).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Gallery test' })).toHaveFocus()
+  })
+
+  it('keeps texture recovery independent when returning manually from standard mode', async () => {
+    enableTextureScene()
+    textureState.failedUrls.add(firstUrl)
+    renderTextureGallery([firstUrl, secondUrl])
+
+    await waitForUnavailableCount(1)
+    markRendererReady()
+    expect(textureAttempt(101, 0)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
+    markRendererReady()
+
+    expect(textureState.clearCalls).toEqual([])
+    expect(screen.getByRole('region', { name: 'Unavailable artwork images' })).toHaveTextContent(
+      '1 artwork image is unavailable in the 3D gallery.',
+    )
+    expect(textureAttempt(101, 0)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
+
+    textureState.failedUrls.delete(firstUrl)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry unavailable images' }))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Unavailable artwork images' })).not.toBeInTheDocument())
+    expect(textureState.clearCalls).toEqual([firstUrl])
+    expect(textureAttempt(101, 1)).toBeInTheDocument()
+    expect(textureAttempt(102, 0)).toBeInTheDocument()
+    expect(textureAttempt(102, 1)).not.toBeInTheDocument()
   })
 
   it('keeps a repeated texture failure retryable and supports keyboard retry after the image recovers', async () => {
