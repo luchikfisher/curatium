@@ -185,7 +185,7 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .preview-artwork__body .text-link { display: inline-block; margin-top: .35rem; }
 .public-exhibition { padding-bottom: 6rem; }
 .public-exhibition__heading { max-width: 52rem; padding: 5rem 0 2.25rem; }
-.public-exhibition__heading h1 { margin-top: .5rem; }
+.public-exhibition__heading h1, .public-exhibition__heading h2 { margin-top: .5rem; }
 .public-exhibition__publication { margin: 1.25rem 0 0; color: var(--muted); line-height: 1.5; }
 .public-exhibition__navigation { padding-bottom: 2rem; }
 .public-exhibition__section { padding: 2rem 0; border-top: 1px solid var(--line); }

@@ -58,6 +58,7 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
       exhibition={exhibition}
       headingLevel={1}
       fallback={<StandardExhibition exhibition={exhibition} curatorReturnTo={curatorReturnTo} />}
+      rendererLoadingFallback={<StandardExhibition exhibition={exhibition} curatorReturnTo={curatorReturnTo} headingLevel={2} />}
       exitAction={(
         <>
           {curatorReturnTo && (
@@ -73,13 +74,15 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
 function StandardExhibition({
   exhibition,
   curatorReturnTo,
+  headingLevel = 1,
 }: {
   exhibition: PublicExhibitionDetail
   curatorReturnTo: string | null
+  headingLevel?: 1 | 2
 }) {
   return (
     <>
-      <PublicExhibitionContent exhibition={exhibition} />
+      <PublicExhibitionContent exhibition={exhibition} headingLevel={headingLevel} />
       <nav className="public-exhibition__navigation" aria-label="Exhibition navigation">
         {curatorReturnTo && (
           <Link className="text-link" to={curatorReturnTo}>Return to curator preview</Link>

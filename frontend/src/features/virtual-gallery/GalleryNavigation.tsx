@@ -5,16 +5,18 @@ export function GalleryNavigation({
   assignments,
   selectedIndex,
   onSelect,
-  onOpenInformation,
+  onToggleInformation,
   informationOpen = false,
+  informationDialogId,
   informationButtonRef,
   navigationRef,
 }: {
   assignments: readonly SlottedArtwork[]
   selectedIndex: number
   onSelect: (index: number) => void
-  onOpenInformation?: () => void
+  onToggleInformation?: () => void
   informationOpen?: boolean
+  informationDialogId?: string
   informationButtonRef?: RefObject<HTMLButtonElement | null>
   navigationRef?: RefObject<HTMLElement | null>
 }) {
@@ -49,14 +51,15 @@ export function GalleryNavigation({
         <button className="button" type="button" disabled={!hasNext} onClick={() => onSelect(selectedIndex + 1)}>
           Next artwork
         </button>
-        {current && onOpenInformation && (
+        {current && onToggleInformation && (
           <button
             ref={informationButtonRef}
             className="button button-secondary"
             type="button"
             aria-expanded={informationOpen}
-            aria-label={`Open information for artwork ${selectedIndex + 1} of ${assignments.length}: ${current.item.artwork.title}`}
-            onClick={onOpenInformation}
+            aria-controls={informationDialogId}
+            aria-label={`${informationOpen ? 'Hide information for' : 'Open information for'} artwork ${selectedIndex + 1} of ${assignments.length}: ${current.item.artwork.title}`}
+            onClick={onToggleInformation}
           >
             Artwork information
           </button>

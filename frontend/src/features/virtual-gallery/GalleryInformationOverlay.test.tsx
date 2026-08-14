@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GalleryInformationOverlay } from './GalleryInformationOverlay'
 import { GalleryNavigation } from './GalleryNavigation'
@@ -30,6 +30,7 @@ function InformationSession({ items }: { items: GalleryItem[] }) {
   const assignments = assignArtworkSlots(items)
   const [selectedIndex, setSelectedIndex] = useState(assignments.length > 0 ? 0 : -1)
   const [informationOpen, setInformationOpen] = useState(false)
+  const informationDialogId = useId()
   const informationButtonRef = useRef<HTMLButtonElement>(null)
   const restoreFocus = useRef(false)
   const current = assignments[selectedIndex] ?? null
@@ -48,14 +49,21 @@ function InformationSession({ items }: { items: GalleryItem[] }) {
   return (
     <>
       {informationOpen && current && (
-        <GalleryInformationOverlay assignment={current} itemIndex={selectedIndex} itemCount={assignments.length} onClose={closeInformation} />
+        <GalleryInformationOverlay
+          assignment={current}
+          itemIndex={selectedIndex}
+          itemCount={assignments.length}
+          dialogId={informationDialogId}
+          onClose={closeInformation}
+        />
       )}
       <GalleryNavigation
         assignments={assignments}
         selectedIndex={selectedIndex}
         onSelect={setSelectedIndex}
-        onOpenInformation={() => setInformationOpen(true)}
+        onToggleInformation={informationOpen ? closeInformation : () => setInformationOpen(true)}
         informationOpen={informationOpen}
+        informationDialogId={informationDialogId}
         informationButtonRef={informationButtonRef}
       />
     </>
@@ -90,6 +98,31 @@ describe('gallery information overlay', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close information for artwork 1 of 2: First' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open information for artwork 1 of 2: First' })).toHaveFocus()
+  })
+
+  it('connects the information trigger to the non-modal dialog and restores the exact trigger after Escape', () => {
+    render(<InformationSession items={[item(1, 'First')]} />)
+
+    const trigger = screen.getByRole('button', { name: 'Open information for artwork 1 of 1: First' })
+    const dialogId = trigger.getAttribute('aria-controls')
+    expect(dialogId).toBeTruthy()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: 'First' })
+    expect(dialog).toHaveAttribute('id', dialogId)
+    expect(dialog).toHaveAttribute('aria-modal', 'false')
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(trigger).toHaveAccessibleName('Hide information for artwork 1 of 1: First')
+    expect(dialog).toHaveFocus()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger).toHaveAccessibleName('Open information for artwork 1 of 1: First')
   })
 
   it('updates open information through previous, next, and keyboard navigation', () => {
