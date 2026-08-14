@@ -72,6 +72,33 @@ async function loadSearchPage() {
   return screen.findByLabelText('Search terms')
 }
 
+interface ValidationFocusSnapshot {
+  target: Element
+  ariaInvalid: string | null
+  describedBy: string | null
+  inlineError: string | null
+  summary: string | null
+}
+
+function recordValidationFocus(
+  control: HTMLElement,
+  snapshots: ValidationFocusSnapshot[],
+) {
+  const listener = (event: FocusEvent) => {
+    if (event.target !== control) return
+    const describedBy = control.getAttribute('aria-describedby')
+    snapshots.push({
+      target: control,
+      ariaInvalid: control.getAttribute('aria-invalid'),
+      describedBy,
+      inlineError: describedBy ? document.getElementById(describedBy)?.textContent ?? null : null,
+      summary: control.closest('form')?.querySelector('[role="alert"]')?.textContent ?? null,
+    })
+  }
+  document.addEventListener('focusin', listener)
+  return () => document.removeEventListener('focusin', listener)
+}
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -116,6 +143,12 @@ describe('museum artwork search and add flow', () => {
     expect(secondSummary.getByText('Current cover artwork')).toBeInTheDocument()
     expect(secondSummary.getByText('Cleveland Museum of Art')).toBeInTheDocument()
     expect(secondSummary.getByText('2024.12')).toBeInTheDocument()
+    const sourceLink = secondSummary.getByRole('link', {
+      name: 'View source for artwork 2 of 2: Second published artwork (opens in a new tab)',
+    })
+    expect(sourceLink).toHaveAttribute('href', 'https://museum.example/artworks/154235')
+    expect(sourceLink).toHaveAttribute('target', '_blank')
+    expect(sourceLink).toHaveAttribute('rel', 'noreferrer')
 
     expect(screen.queryByLabelText('Search terms')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Add artwork/ })).not.toBeInTheDocument()
@@ -130,6 +163,27 @@ describe('museum artwork search and add flow', () => {
     expect(await screen.findByRole('heading', { name: 'Review published artworks' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Search terms')).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps duplicate-titled published source actions position-qualified', async () => {
+    const first = curatedItem('Untitled', 1)
+    const second = curatedItem('Untitled', 2)
+    first.artwork.sourceUrl = 'https://museum.example/first'
+    second.artwork.sourceUrl = 'https://museum.example/second'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({
+      status: 'PUBLISHED',
+      publishedAt: '2026-08-04T09:00:00Z',
+      items: [first, second],
+      coverArtworkId: first.artwork.id,
+    }))))
+    renderAt('/exhibitions/1/artworks')
+
+    expect(await screen.findByRole('link', {
+      name: 'View source for artwork 1 of 2: Untitled (opens in a new tab)',
+    })).toHaveAttribute('href', 'https://museum.example/first')
+    expect(screen.getByRole('link', {
+      name: 'View source for artwork 2 of 2: Untitled (opens in a new tab)',
+    })).toHaveAttribute('href', 'https://museum.example/second')
   })
 
   it('replaces published review state with the draft editor for another exhibition route', async () => {
@@ -234,12 +288,14 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByRole('heading', { name: 'Night page one' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(document.title).toBe('Artworks — Lines of Light | Curatium')
     expect(window.location.pathname).toBe('/exhibitions/1/artworks')
     expect(window.location.search).toBe('?q=night+sky')
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
 
     expect(await screen.findByRole('heading', { name: 'Night page two' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 2.')
     expect(document.title).toBe('Artworks — Lines of Light | Curatium')
     expect(window.location.search).toBe('?q=night+sky&page=2')
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -312,9 +368,11 @@ describe('museum artwork search and add flow', () => {
 
     await act(async () => { await appRouter.navigate(-1) })
     expect(await screen.findByRole('heading', { name: 'Night result' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(screen.getByLabelText('Search terms')).toHaveValue('night')
     await act(async () => { await appRouter.navigate(1) })
     expect(await screen.findByRole('heading', { name: 'Moon result' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(screen.getByLabelText('Search terms')).toHaveValue('moon')
     expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('q=night'))).toHaveLength(2)
     expect(fetchMock.mock.calls.filter(([path]) => String(path).includes('q=moon'))).toHaveLength(2)
@@ -420,6 +478,9 @@ describe('museum artwork search and add flow', () => {
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
     )
     expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' })).toHaveAttribute('loading', 'lazy')
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
+    expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
+    expect(document.querySelector('.museum-results__grid')).not.toHaveAttribute('aria-live')
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/museum/artworks?q=night&page=1&size=20', expect.any(Object))
   })
 
@@ -434,6 +495,8 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByRole('heading', { name: 'No artworks found' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No artworks found on page 1.')
+    expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
   })
 
   it('can continue from a filtered empty page when the provider has another page', async () => {
@@ -465,11 +528,72 @@ describe('museum artwork search and add flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    await userEvent.type(await loadSearchPage(), ' n ')
+    const query = await loadSearchPage()
+    await userEvent.type(query, ' n ')
+    const focusSnapshots: ValidationFocusSnapshot[] = []
+    const stopRecording = recordValidationFocus(query, focusSnapshots)
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    stopRecording()
+
+    expect(focusSnapshots).toEqual([{
+      target: query,
+      ariaInvalid: 'true',
+      describedBy: 'museum-query-error',
+      inlineError: 'Search query must be between 2 and 100 characters.',
+      summary: 'Museum search was not submitted. Correct the highlighted field.',
+    }])
+    expect(query).toHaveFocus()
+    expect(query).toHaveAttribute('aria-invalid', 'true')
+    expect(query).toHaveAttribute('aria-describedby', 'museum-query-error')
+    expect(screen.getByText('Search query must be between 2 and 100 characters.')).toBeInTheDocument()
+    expect(screen.getByText('Search query must be between 2 and 100 characters.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Museum search was not submitted. Correct the highlighted field.',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives duplicate-titled museum results position-qualified add names', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(searchPage([
+        searchArtwork({ externalId: 'first', title: 'Untitled' }),
+        searchArtwork({ externalId: 'second', title: 'Untitled' }),
+      ])))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.type(await loadSearchPage(), 'untitled')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
-    expect(screen.getByText('Search query must be between 2 and 100 characters.')).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('button', { name: 'Add artwork 1 of 2: Untitled' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add artwork 2 of 2: Untitled' })).toBeInTheDocument()
+    expect(screen.getAllByText('Add artwork')).toHaveLength(2)
+  })
+
+  it('does not move focus through validation when a valid museum search is submitted', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail()))
+      .mockResolvedValueOnce(respond(searchPage()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const query = await loadSearchPage()
+    await userEvent.type(query, 'night')
+    const queryFocusEvents: EventTarget[] = []
+    const listener = (event: FocusEvent) => {
+      if (event.target === query) queryFocusEvents.push(event.target)
+    }
+    document.addEventListener('focusin', listener)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await screen.findByRole('heading', { name: 'Nocturne' })
+    document.removeEventListener('focusin', listener)
+
+    expect(queryFocusEvents).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(/Museum search was not submitted/)).not.toBeInTheDocument()
   })
 
   it('cancels a stale search and renders only the latest results', async () => {
@@ -613,9 +737,12 @@ describe('museum artwork search and add flow', () => {
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     await screen.findByRole('heading', { name: 'Nocturne' })
-    await userEvent.click(screen.getByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Add artwork/ }))
 
     expect(await screen.findByText('Already added')).toBeInTheDocument()
+    expect(screen.getByText('Already added')).not.toHaveAttribute('role')
+    expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
+    expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Committed museum title' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Thumbnail of Committed museum title' })).toHaveAttribute(
@@ -640,7 +767,8 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
 
     expect(await screen.findByText('Already added')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add artwork' })).not.toBeInTheDocument()
+    expect(screen.getByText('Already added')).not.toHaveAttribute('role')
+    expect(screen.queryByRole('button', { name: /^Add artwork/ })).not.toBeInTheDocument()
   })
 
   it('handles a duplicate conflict', async () => {
@@ -653,7 +781,7 @@ describe('museum artwork search and add flow', () => {
 
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Add artwork/ }))
     expect(await screen.findByText('Nocturne is already in this exhibition.')).toBeInTheDocument()
     expect(screen.getByText('Already added')).toBeInTheDocument()
   })
@@ -677,7 +805,7 @@ describe('museum artwork search and add flow', () => {
     const query = await loadSearchPage()
     await userEvent.type(query, 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Add artwork/ }))
 
     expect(await screen.findByText('This exhibition already has the maximum of 10 artworks.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Current artworks (10/10)' })).toBeInTheDocument()
@@ -685,7 +813,7 @@ describe('museum artwork search and add flow', () => {
     expect(screen.getByRole('heading', { name: 'Committed artwork 10' })).toBeInTheDocument()
     expect(query).toHaveValue('night')
     expect(screen.getByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add artwork' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Add artwork/ })).toBeDisabled()
     expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/exhibitions/1', expect.any(Object))
   })
 
@@ -702,13 +830,13 @@ describe('museum artwork search and add flow', () => {
 
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Add artwork/ }))
 
     expect(await screen.findByText(/displayed artwork list could not be refreshed and may be stale/i)).toBeInTheDocument()
     expect(screen.getByText('This exhibition has reached its 10-artwork limit.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Initially loaded artwork' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add artwork' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Add artwork/ })).toBeDisabled()
   })
 
   it('handles published read-only and non-importable add responses', async () => {
@@ -730,10 +858,10 @@ describe('museum artwork search and add flow', () => {
 
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
-    const add = await screen.findByRole('button', { name: 'Add artwork' })
+    const add = await screen.findByRole('button', { name: /^Add artwork/ })
     await userEvent.click(add)
     expect(await screen.findByText('Only public-domain artworks can be imported.')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Add artwork/ }))
 
     const reconciliationStatus = await screen.findByText(/attempted change was not saved because this exhibition is now published/i)
     expect(reconciliationStatus).toHaveFocus()
@@ -746,7 +874,7 @@ describe('museum artwork search and add flow', () => {
       '/exhibitions/1/preview',
     )
     expect(screen.queryByLabelText('Search terms')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add artwork' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Add artwork/ })).not.toBeInTheDocument()
   })
 
   it('shows a malformed search response as an error', async () => {
@@ -820,7 +948,7 @@ describe('museum artwork search and add flow', () => {
 
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Add artwork/ }))
     await waitFor(() => expect(addSignal).toBeDefined())
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
@@ -857,7 +985,7 @@ describe('museum artwork search and add flow', () => {
 
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Add artwork/ }))
     await waitFor(() => expect(refreshSignal).toBeDefined())
     await act(async () => { await appRouter.navigate('/exhibitions/2/artworks') })
 
@@ -1061,17 +1189,121 @@ describe('museum artwork search and add flow', () => {
   })
 
   it('validates oversized notes before submitting them', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(respond(detail({ items: [curatedItem('First artwork', 1)] })))
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail({ items: [first, second] })))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/artworks')
 
-    fireEvent.change(await screen.findByLabelText('Curatorial note for artwork 1 of 1: First artwork'), {
+    const firstNote = await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork')
+    const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
+    fireEvent.change(secondNote, {
       target: { value: 'x'.repeat(2001) },
     })
-    await userEvent.click(screen.getByRole('button', { name: /Save note for artwork/ }))
+    const focusSnapshots: ValidationFocusSnapshot[] = []
+    const textareaFocusEvents: EventTarget[] = []
+    const stopRecording = recordValidationFocus(secondNote, focusSnapshots)
+    const textareaListener = (event: FocusEvent) => {
+      if (event.target instanceof HTMLTextAreaElement) textareaFocusEvents.push(event.target)
+    }
+    document.addEventListener('focusin', textareaListener)
+    await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' }))
+    stopRecording()
+    document.removeEventListener('focusin', textareaListener)
 
+    expect(focusSnapshots).toEqual([{
+      target: secondNote,
+      ariaInvalid: 'true',
+      describedBy: 'curatorial-note-2-error',
+      inlineError: 'Curatorial note must be at most 2000 characters.',
+      summary: 'Curatorial note was not saved. Correct the highlighted field.',
+    }])
+    expect(textareaFocusEvents).toEqual([secondNote])
+    expect(secondNote).toHaveFocus()
+    expect(firstNote).not.toHaveFocus()
+    expect(firstNote).not.toHaveAttribute('aria-invalid', 'true')
+    expect(secondNote).toHaveAttribute('aria-describedby', 'curatorial-note-2-error')
     expect(screen.getByText('Curatorial note must be at most 2000 characters.')).toBeInTheDocument()
+    expect(screen.getByText('Curatorial note must be at most 2000 characters.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Curatorial note was not saved. Correct the highlighted field.',
+    )
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not move focus through validation when a valid note is submitted', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const savedSecond = { ...second, curatorialNote: 'A valid note' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(savedSecond))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const firstNote = await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork')
+    const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
+    await userEvent.type(secondNote, 'A valid note')
+    const textareaFocusEvents: EventTarget[] = []
+    const listener = (event: FocusEvent) => {
+      if (event.target === firstNote || event.target === secondNote) textareaFocusEvents.push(event.target)
+    }
+    document.addEventListener('focusin', listener)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' }))
+    await screen.findByText('Curatorial note saved.')
+    document.removeEventListener('focusin', listener)
+
+    expect(textareaFocusEvents).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(/Curatorial note was not saved/)).not.toBeInTheDocument()
+  })
+
+  it('keeps only the current curation mutation feedback live without disturbing another dirty note', async () => {
+    const first = curatedItem('First artwork', 1)
+    const second = curatedItem('Second artwork', 2)
+    const savedSecond = { ...second, curatorialNote: 'Saved second note' }
+    const movedSecond = { ...savedSecond, position: 1 }
+    const movedFirst = { ...first, position: 2 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first, second] })))
+      .mockResolvedValueOnce(respond(detail({
+        items: [first, second],
+        coverArtworkId: second.artwork.id,
+      })))
+      .mockResolvedValueOnce(respond(savedSecond))
+      .mockResolvedValueOnce(respond([movedSecond, movedFirst]))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    const firstNote = await screen.findByLabelText('Curatorial note for artwork 1 of 2: First artwork')
+    const secondNote = screen.getByLabelText('Curatorial note for artwork 2 of 2: Second artwork')
+    await userEvent.type(firstNote, 'Unsaved first note')
+    await userEvent.click(screen.getByRole('button', { name: 'Set artwork 2 of 2, Second artwork as cover' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Cover updated.')
+    expect(screen.getAllByText('Current cover').every((label) => !label.hasAttribute('role'))).toBe(true)
+
+    await userEvent.type(secondNote, 'Saved second note')
+    await userEvent.click(screen.getByRole('button', { name: 'Save note for artwork 2 of 2, Second artwork' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Curatorial note saved.')
+    expect(screen.getByText('Cover updated.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(firstNote).toHaveValue('Unsaved first note')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Move artwork 2 of 2, Second artwork up' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Artwork moved up.')
+    expect(screen.queryByText('Curatorial note saved.')).not.toBeInTheDocument()
+    expect(screen.getByText('Cover updated.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByLabelText('Curatorial note for artwork 2 of 2: First artwork'))
+      .toHaveValue('Unsaved first note')
+
+    await userEvent.click(screen.getByRole('link', { name: 'Preview & publish' }))
+    expect(await screen.findByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeInTheDocument()
   })
 
   it('displays a backend curatorial-note field error', async () => {
@@ -1428,6 +1660,22 @@ describe('museum artwork search and add flow', () => {
     expect(screen.getByRole('button', { name: 'Remove artwork 2 of 2, Untitled from exhibition' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Set artwork 1 of 2, Untitled as cover' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Set artwork 2 of 2, Untitled as cover' })).toBeInTheDocument()
+
+    const firstRemove = screen.getByRole('button', { name: 'Remove artwork 1 of 2, Untitled from exhibition' })
+    await userEvent.click(firstRemove)
+    expect(screen.getByRole('dialog', { name: 'Remove artwork 1 of 2, Untitled?' })).toBeInTheDocument()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Remove artwork 1 of 2, Untitled from exhibition' })).toHaveFocus()
+
+    const secondRemove = screen.getByRole('button', { name: 'Remove artwork 2 of 2, Untitled from exhibition' })
+    await userEvent.click(secondRemove)
+    const confirmation = screen.getByRole('dialog', { name: 'Remove artwork 2 of 2, Untitled?' })
+    expect(confirmation).toHaveAttribute('aria-modal', 'false')
+    expect(confirmation).toHaveAccessibleDescription('Remove Untitled from this exhibition? This cannot be undone.')
+    expect(screen.getByRole('button', { name: 'Confirm removal of artwork 2 of 2, Untitled' })).toHaveFocus()
+    await userEvent.keyboard('{Escape}')
+    expect(confirmation).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove artwork 2 of 2, Untitled from exhibition' })).toHaveFocus()
   })
 
   it('requires removal confirmation and replaces the item list after deletion', async () => {
@@ -1443,6 +1691,8 @@ describe('museum artwork search and add flow', () => {
     const firstRow = () => within(screen.getByRole('heading', { name: 'First artwork' }).closest('article')!)
     await screen.findByRole('heading', { name: 'First artwork' })
     await userEvent.click(firstRow().getByRole('button', { name: 'Remove artwork 1 of 2, First artwork from exhibition' }))
+    expect(screen.getByRole('dialog', { name: 'Remove artwork 1 of 2, First artwork?' }))
+      .toHaveAccessibleDescription('Remove First artwork from this exhibition? This cannot be undone.')
     expect(await screen.findByRole('button', { name: 'Confirm removal of artwork 1 of 2, First artwork' })).toHaveFocus()
     await userEvent.click(screen.getByRole('button', { name: 'Keep artwork 1 of 2, First artwork in exhibition' }))
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -1610,9 +1860,35 @@ describe('museum artwork search and add flow', () => {
     await userEvent.click(confirm)
     await userEvent.click(confirm)
 
+    expect(screen.getByRole('dialog', { name: 'Remove artwork 1 of 1, First artwork?' }))
+      .toHaveAttribute('aria-busy', 'true')
+    expect(confirm).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Keep artwork 1 of 1, First artwork in exhibition' })).toBeDisabled()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     resolveDeletion?.(respond(detail({ items: [] })))
     expect(await screen.findByText('Artwork removed.')).toBeInTheDocument()
+  })
+
+  it('keeps a failed removal confirmation available for retry or cancellation', async () => {
+    const first = curatedItem('First artwork', 1)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(detail({ items: [first] })))
+      .mockResolvedValueOnce(respond(error('SERVICE_UNAVAILABLE', 'Removal failed.', 503), 503))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/artworks')
+
+    await userEvent.click(await screen.findByRole('button', {
+      name: 'Remove artwork 1 of 1, First artwork from exhibition',
+    }))
+    await userEvent.click(screen.getByRole('button', {
+      name: 'Confirm removal of artwork 1 of 1, First artwork',
+    }))
+
+    expect(await screen.findByText('Removal failed.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Remove artwork 1 of 1, First artwork?' }))
+      .not.toHaveAttribute('aria-busy')
+    expect(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 1, First artwork' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Keep artwork 1 of 1, First artwork in exhibition' })).toBeEnabled()
   })
 
   it('ignores a late committed deletion response after changing exhibition routes', async () => {
@@ -1673,8 +1949,8 @@ describe('museum artwork search and add flow', () => {
     await userEvent.type(await loadSearchPage(), 'night')
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     await screen.findByRole('heading', { name: 'Nocturne' })
-    await userEvent.click(within(screen.getByRole('heading', { name: 'Nocturne' }).closest('article')!).getByRole('button', { name: 'Add artwork' }))
-    await userEvent.click(within(screen.getByRole('heading', { name: 'Moonlight' }).closest('article')!).getByRole('button', { name: 'Add artwork' }))
+    await userEvent.click(within(screen.getByRole('heading', { name: 'Nocturne' }).closest('article')!).getByRole('button', { name: /^Add artwork/ }))
+    await userEvent.click(within(screen.getByRole('heading', { name: 'Moonlight' }).closest('article')!).getByRole('button', { name: /^Add artwork/ }))
     await screen.findByRole('heading', { name: 'Current artworks (10/10)' })
     await userEvent.click(screen.getByRole('button', { name: 'Remove artwork 1 of 10, Committed artwork 1 from exhibition' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm removal of artwork 1 of 10, Committed artwork 1' }))
@@ -1682,8 +1958,8 @@ describe('museum artwork search and add flow', () => {
     expect(await screen.findByRole('heading', { name: 'Current artworks (9/10)' })).toBeInTheDocument()
     expect(screen.queryByText('This exhibition has reached its 10-artwork limit.')).not.toBeInTheDocument()
     expect(screen.queryByText(/maximum of 10 artworks/)).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Add artwork' })).toHaveLength(2)
-    expect(screen.getAllByRole('button', { name: 'Add artwork' }).every((button) => !button.hasAttribute('disabled'))).toBe(true)
+    expect(screen.getAllByRole('button', { name: /^Add artwork/ })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /^Add artwork/ }).every((button) => !button.hasAttribute('disabled'))).toBe(true)
     expect(screen.getByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
   })
 

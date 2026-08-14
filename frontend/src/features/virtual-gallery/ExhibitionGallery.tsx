@@ -1,4 +1,4 @@
-import { Component, Suspense, type ReactNode, type Ref, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, type ReactNode, type Ref, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useTexture } from '@react-three/drei'
 import { DoubleSide, SRGBColorSpace, type Texture, Vector3, WebGLRenderer } from 'three'
@@ -46,11 +46,13 @@ function initialTextureStates(assignments: readonly SlottedArtwork[]): Record<nu
 export function ExhibitionGallery({
   exhibition,
   fallback,
+  rendererLoadingFallback,
   headingLevel = 2,
   exitAction,
 }: {
   exhibition: GalleryExhibition
   fallback: ReactNode
+  rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
   exitAction: ReactNode
 }) {
@@ -61,6 +63,7 @@ export function ExhibitionGallery({
       sessionKey={sessionKey}
       exhibition={exhibition}
       fallback={fallback}
+      rendererLoadingFallback={rendererLoadingFallback}
       headingLevel={headingLevel}
       exitAction={exitAction}
     />
@@ -71,12 +74,14 @@ function GalleryInstance({
   sessionKey,
   exhibition,
   fallback,
+  rendererLoadingFallback,
   headingLevel = 2,
   exitAction,
 }: {
   sessionKey: string
   exhibition: GalleryExhibition
   fallback: ReactNode
+  rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
   exitAction: ReactNode
 }) {
@@ -92,6 +97,7 @@ function GalleryInstance({
   const [tourStarted, setTourStarted] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [informationOpen, setInformationOpen] = useState(false)
+  const informationDialogId = useId()
   const informationButtonRef = useRef<HTMLButtonElement>(null)
   const navigationRef = useRef<HTMLElement>(null)
   const restoreInformationFocus = useRef(false)
@@ -320,6 +326,7 @@ function GalleryInstance({
               assignment={currentAssignment}
               itemIndex={currentSelectedIndex}
               itemCount={assignments.length}
+              dialogId={informationDialogId}
               onClose={closeInformation}
             />
           )}
@@ -327,7 +334,7 @@ function GalleryInstance({
         {phase.kind !== 'ready' && (
           <GalleryRendererLoadingStandardContent
             ref={rendererLoadingContentRef}
-            fallback={fallback}
+            fallback={rendererLoadingFallback ?? fallback}
             retrying={phase.kind === 'retrying'}
           />
         )}
@@ -337,8 +344,9 @@ function GalleryInstance({
             assignments={assignments}
             selectedIndex={currentSelectedIndex}
             onSelect={setSelectedIndex}
-            onOpenInformation={() => setInformationOpen(true)}
+            onToggleInformation={informationOpen ? closeInformation : () => setInformationOpen(true)}
             informationOpen={informationOpen}
+            informationDialogId={informationDialogId}
             informationButtonRef={informationButtonRef}
           />
         )}

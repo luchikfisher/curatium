@@ -140,6 +140,18 @@ function renderGallery(fallback = <p>Standard exhibition content</p>) {
   )
 }
 
+function renderPublicHeadingGallery() {
+  return render(
+    <ExhibitionGallery
+      exhibition={exhibition}
+      headingLevel={1}
+      fallback={<article><h1>{exhibition.title}</h1></article>}
+      rendererLoadingFallback={<article><h2>{exhibition.title}</h2></article>}
+      exitAction={<a href="/">Exit to exhibitions</a>}
+    />,
+  )
+}
+
 function artworkExhibition(imageUrls: readonly string[]): GalleryExhibition {
   return {
     ...exhibition,
@@ -199,6 +211,49 @@ afterEach(() => {
 })
 
 describe('ExhibitionGallery renderer recovery', () => {
+  it('keeps exactly one public H1 through renderer loading, ready, retry, degradation, and standard mode', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    renderPublicHeadingGallery()
+
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 2, name: exhibition.title })).toBeInTheDocument()
+
+    markRendererReady()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.queryByRole('heading', { level: 2, name: exhibition.title })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lose renderer context' }))
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try 3D again' }))
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 2, name: exhibition.title })).toBeInTheDocument()
+
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.queryByRole('heading', { level: 2, name: exhibition.title })).not.toBeInTheDocument()
+  })
+
+  it('preserves the curator page H1 and virtual-gallery H2 structure', () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
+    render(
+      <>
+        <h1>Curator preview</h1>
+        <ExhibitionGallery
+          exhibition={exhibition}
+          headingLevel={2}
+          fallback={<p>Standard curator preview</p>}
+          exitAction={<a href="/">Return to editor</a>}
+        />
+      </>,
+    )
+
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 1, name: 'Curator preview' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: exhibition.title })).toBeInTheDocument()
+  })
+
   it('uses the standard HTML fallback with an explicit reason when WebGL is unavailable', () => {
     vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(false)
     renderGallery()

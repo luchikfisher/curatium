@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -45,12 +45,134 @@ function renderAt(path: string) {
   return render(<App />)
 }
 
+interface ValidationFocusSnapshot {
+  target: Element
+  ariaInvalid: string | null
+  describedBy: string | null
+  inlineError: string | null
+  summary: string | null
+}
+
+function recordValidationFocus(
+  control: HTMLElement,
+  snapshots: ValidationFocusSnapshot[],
+) {
+  const listener = (event: FocusEvent) => {
+    if (event.target !== control) return
+    const describedBy = control.getAttribute('aria-describedby')
+    snapshots.push({
+      target: control,
+      ariaInvalid: control.getAttribute('aria-invalid'),
+      describedBy,
+      inlineError: describedBy ? document.getElementById(describedBy)?.textContent ?? null : null,
+      summary: control.closest('form')?.querySelector('[role="alert"]')?.textContent ?? null,
+    })
+  }
+  document.addEventListener('focusin', listener)
+  return () => document.removeEventListener('focusin', listener)
+}
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
 })
 
 describe('exhibition create and edit workflow', () => {
+  it('announces a blank metadata submission once and focuses the first invalid field', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/new')
+
+    const title = screen.getByLabelText(/title/i)
+    const focusSnapshots: ValidationFocusSnapshot[] = []
+    const stopRecording = recordValidationFocus(title, focusSnapshots)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create exhibition' }))
+    stopRecording()
+
+    expect(focusSnapshots).toEqual([{
+      target: title,
+      ariaInvalid: 'true',
+      describedBy: 'title-error',
+      inlineError: 'Title is required.',
+      summary: 'Exhibition metadata was not submitted. Correct the highlighted field.',
+    }])
+    expect(title).toHaveFocus()
+    expect(title).toHaveAttribute('aria-invalid', 'true')
+    expect(title).toHaveAttribute('aria-describedby', 'title-error')
+    expect(screen.getByText('Title is required.')).not.toHaveAttribute('role')
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Exhibition metadata was not submitted. Correct the highlighted field.',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('announces one multi-error summary and focuses the first invalid metadata field in document order', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/new')
+
+    const title = screen.getByLabelText(/title/i)
+    const summary = screen.getByLabelText(/summary/i)
+    const introduction = screen.getByLabelText(/introduction/i)
+    await userEvent.type(title, 'Valid title')
+    fireEvent.change(summary, { target: { value: 's'.repeat(301) } })
+    fireEvent.change(introduction, { target: { value: 'i'.repeat(5001) } })
+    const focusSnapshots: ValidationFocusSnapshot[] = []
+    const stopRecording = recordValidationFocus(summary, focusSnapshots)
+    await userEvent.click(screen.getByRole('button', { name: 'Create exhibition' }))
+    stopRecording()
+
+    expect(focusSnapshots).toEqual([{
+      target: summary,
+      ariaInvalid: 'true',
+      describedBy: 'summary-error',
+      inlineError: 'Summary must be at most 300 characters.',
+      summary: 'Exhibition metadata was not submitted. Correct the 2 highlighted fields.',
+    }])
+    expect(summary).toHaveFocus()
+    expect(summary).toHaveValue('s'.repeat(301))
+    expect(introduction).toHaveValue('i'.repeat(5001))
+    expect(screen.getByText('Summary must be at most 300 characters.')).toBeInTheDocument()
+    expect(screen.getByText('Introduction must be at most 5,000 characters.')).toBeInTheDocument()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Exhibition metadata was not submitted. Correct the 2 highlighted fields.',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('does not move focus through validation when valid metadata is submitted', async () => {
+    const created = detail({ id: 42, title: 'Valid exhibition' })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(respond(created, 201))
+      .mockResolvedValueOnce(respond(created))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/new')
+
+    const title = screen.getByLabelText(/title/i)
+    const summary = screen.getByLabelText(/summary/i)
+    const introduction = screen.getByLabelText(/introduction/i)
+    await userEvent.type(title, 'Valid exhibition')
+    const validationFocusEvents: EventTarget[] = []
+    const metadataControls: HTMLElement[] = [title, summary, introduction]
+    const listener = (event: FocusEvent) => {
+      if (metadataControls.includes(event.target as HTMLElement)) {
+        validationFocusEvents.push(event.target!)
+      }
+    }
+    document.addEventListener('focusin', listener)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create exhibition' }))
+    await screen.findByText('Exhibition created.')
+    document.removeEventListener('focusin', listener)
+
+    expect(validationFocusEvents).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText(/Exhibition metadata was not submitted/)).not.toBeInTheDocument()
+  })
+
   it('shows the creation acknowledgement once and does not replay it after browser Back', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(respond(detail({
@@ -602,7 +724,10 @@ describe('exhibition create and edit workflow', () => {
 
     await screen.findByLabelText(/title/i)
     await userEvent.click(screen.getByRole('button', { name: 'Delete exhibition' }))
-    expect(screen.getByText('Delete this draft exhibition? This cannot be undone.')).toBeInTheDocument()
+    const confirmation = screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' })
+    expect(confirmation).toHaveAttribute('aria-modal', 'false')
+    expect(confirmation).toHaveAccessibleDescription('Delete this draft exhibition? This cannot be undone.')
+    expect(screen.getByRole('button', { name: 'Confirm deletion' })).toHaveFocus()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     await userEvent.click(screen.getByRole('button', { name: 'Confirm deletion' }))
 
@@ -622,8 +747,23 @@ describe('exhibition create and edit workflow', () => {
     expect(screen.getByRole('button', { name: 'Confirm deletion' })).toHaveFocus()
     await userEvent.click(keep)
 
+    expect(screen.getByRole('button', { name: 'Delete exhibition' })).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels deletion with Escape and restores the exact trigger', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(respond(detail()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions/1/edit')
+
+    await screen.findByLabelText(/title/i)
     const deleteButton = screen.getByRole('button', { name: 'Delete exhibition' })
-    expect(deleteButton).toHaveFocus()
+    await userEvent.click(deleteButton)
+    const confirmation = screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' })
+    await userEvent.keyboard('{Escape}')
+
+    expect(confirmation).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete exhibition' })).toHaveFocus()
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -639,6 +779,7 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm deletion' }))
 
     expect(await screen.findByText('Please try again.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' })).toBeInTheDocument()
     expect(screen.getByLabelText(/title/i)).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Confirm deletion' })).toBeEnabled()
   })
@@ -656,6 +797,10 @@ describe('exhibition create and edit workflow', () => {
     await userEvent.click(confirm)
     await userEvent.click(confirm)
 
+    expect(screen.getByRole('dialog', { name: 'Delete draft exhibition: Lines of Light?' }))
+      .toHaveAttribute('aria-busy', 'true')
+    expect(confirm).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Keep exhibition' })).toBeDisabled()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 

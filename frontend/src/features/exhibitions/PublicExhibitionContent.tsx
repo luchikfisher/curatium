@@ -1,17 +1,25 @@
 import type { PublicExhibitionDetail, PublicExhibitionItem } from './types'
 import { ArtworkImage } from '../../components/ArtworkImage'
+import { ArtworkSourceLink } from '../../components/ArtworkSourceLink'
 
-export function PublicExhibitionContent({ exhibition }: { exhibition: PublicExhibitionDetail }) {
+export function PublicExhibitionContent({
+  exhibition,
+  headingLevel = 1,
+}: {
+  exhibition: PublicExhibitionDetail
+  headingLevel?: 1 | 2
+}) {
   const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
   const coverItem = exhibition.coverArtworkId === null
     ? null
     : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
+  const Heading = headingLevel === 1 ? 'h1' : 'h2'
 
   return (
     <article className="public-exhibition">
       <header className="public-exhibition__heading">
         <p className="eyebrow">Published exhibition</p>
-        <h1>{exhibition.title}</h1>
+        <Heading>{exhibition.title}</Heading>
         {exhibition.summary ? (
           <p className="lede">{exhibition.summary}</p>
         ) : (
@@ -99,15 +107,7 @@ function PublicArtwork({ item, itemCount }: { item: PublicExhibitionItem; itemCo
             )}
           </section>
           {artwork.sourceUrl ? (
-            <a
-              className="text-link"
-              href={artwork.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`View source for ${descriptor}`}
-            >
-              View artwork source
-            </a>
+            <ArtworkSourceLink href={artwork.sourceUrl} descriptor={descriptor} />
           ) : (
             <p className="public-exhibition__source-unavailable">Artwork source unavailable.</p>
           )}

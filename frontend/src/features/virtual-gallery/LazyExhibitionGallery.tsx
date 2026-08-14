@@ -10,11 +10,13 @@ const ExhibitionGallery = lazy(async () => {
 export function LazyExhibitionGallery({
   exhibition,
   fallback,
+  rendererLoadingFallback,
   headingLevel,
   exitAction,
 }: {
   exhibition: GalleryExhibition
   fallback: ReactNode
+  rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
   exitAction: ReactNode
 }) {
@@ -52,6 +54,7 @@ export function LazyExhibitionGallery({
         <ResolvedExhibitionGallery
           exhibition={exhibition}
           fallback={fallback}
+          rendererLoadingFallback={rendererLoadingFallback}
           headingLevel={headingLevel}
           exitAction={exitAction}
           onResolved={handleLazyGalleryResolved}
@@ -93,16 +96,18 @@ export function GalleryChunkLoading({
 function ResolvedExhibitionGallery({
   exhibition,
   fallback,
+  rendererLoadingFallback,
   headingLevel,
   exitAction,
   onResolved,
 }: {
   exhibition: GalleryExhibition
   fallback: ReactNode
+  rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
   exitAction: ReactNode
   onResolved: () => void
 }) {
   useLayoutEffect(onResolved, [onResolved])
-  return <ExhibitionGallery exhibition={exhibition} fallback={fallback} headingLevel={headingLevel} exitAction={exitAction} />
+  return <ExhibitionGallery exhibition={exhibition} fallback={fallback} rendererLoadingFallback={rendererLoadingFallback} headingLevel={headingLevel} exitAction={exitAction} />
 }

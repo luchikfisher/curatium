@@ -106,10 +106,13 @@ describe('public exhibition view', () => {
     expect(screen.getByText('Oil on canvas')).toBeInTheDocument()
     expect(screen.getByText('Museum collection')).toBeInTheDocument()
     expect(screen.getByText('Note for artwork 1.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'View source for artwork 1 of 1: Nocturne' })).toHaveAttribute(
+    const sourceLink = screen.getByRole('link', { name: 'View source for artwork 1 of 1: Nocturne (opens in a new tab)' })
+    expect(sourceLink).toHaveAttribute(
       'href',
       'https://museum.example/artworks/nocturne',
     )
+    expect(sourceLink).toHaveAttribute('target', '_blank')
+    expect(sourceLink).toHaveAttribute('rel', 'noreferrer')
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/public/exhibitions/1', expect.any(Object))
     expect(fetchMock).not.toHaveBeenCalledWith('/api/exhibitions/1', expect.anything())
@@ -266,8 +269,8 @@ describe('public exhibition view', () => {
       Array.from({ length: 10 }, (_, index) => `Committed artwork ${index + 1}`),
     )
     expect(screen.getByRole('img', { name: 'Artwork 10 of 10: Committed artwork 10' })).toBeInTheDocument()
-    expect(within(artworkList).getAllByRole('link', { name: /^View source for artwork \d+ of 10:/ })).toHaveLength(10)
-    expect(screen.getByRole('link', { name: 'View source for artwork 10 of 10: Committed artwork 10' })).toHaveAttribute(
+    expect(within(artworkList).getAllByRole('link', { name: /^View source for artwork \d+ of 10:.*\(opens in a new tab\)$/ })).toHaveLength(10)
+    expect(screen.getByRole('link', { name: 'View source for artwork 10 of 10: Committed artwork 10 (opens in a new tab)' })).toHaveAttribute(
       'href',
       'https://museum.example/artworks/10',
     )
@@ -314,8 +317,8 @@ describe('public exhibition view', () => {
 
     expect(await screen.findByRole('img', { name: 'Artwork 1 of 2: Untitled' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Artwork 2 of 2: Untitled' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'View source for artwork 1 of 2: Untitled' })).toHaveAttribute('href', 'https://museum.example/one')
-    expect(screen.getByRole('link', { name: 'View source for artwork 2 of 2: Untitled' })).toHaveAttribute('href', 'https://museum.example/two')
+    expect(screen.getByRole('link', { name: 'View source for artwork 1 of 2: Untitled (opens in a new tab)' })).toHaveAttribute('href', 'https://museum.example/one')
+    expect(screen.getByRole('link', { name: 'View source for artwork 2 of 2: Untitled (opens in a new tab)' })).toHaveAttribute('href', 'https://museum.example/two')
   })
 
   it('shows the same not-found state for a hidden draft and retries the public endpoint', async () => {

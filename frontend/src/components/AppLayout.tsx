@@ -1,7 +1,10 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { RouteOrientationProvider } from '../features/route-orientation/RouteOrientationProvider'
 
 export function AppLayout() {
+  const { pathname } = useLocation()
+  const visiting = pathname === '/' || pathname.startsWith('/visit/')
+
   return (
     <RouteOrientationProvider>
       <div className="app-shell">
@@ -13,9 +16,13 @@ export function AppLayout() {
             Curatium
           </NavLink>
           <nav aria-label="Primary navigation">
-            <NavLink to="/" end>
+            <Link
+              to="/"
+              aria-current={visiting ? 'page' : undefined}
+              className={visiting ? 'active' : undefined}
+            >
               Visit
-            </NavLink>
+            </Link>
             <NavLink to="/exhibitions">Curate</NavLink>
           </nav>
         </header>
