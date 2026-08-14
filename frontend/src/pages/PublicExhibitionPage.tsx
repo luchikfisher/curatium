@@ -36,6 +36,7 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
         : exhibition === null
           ? null
           : 'Exhibition unavailable | Curatium',
+    announcement: loadedExhibition ? `Exhibition: ${loadedExhibition.title}` : null,
   })
 
   useEffect(() => {

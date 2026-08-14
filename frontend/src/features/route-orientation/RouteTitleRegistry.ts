@@ -6,6 +6,7 @@ export interface RouteTitleRegistration {
   routeId: RouteOrientationId
   exhibitionId: number | null
   title: string | null
+  announcement: string | null
 }
 
 export interface RouteTitleRegistry {

@@ -70,6 +70,7 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
           ? 'Exhibition not found | Curatium'
           : 'Exhibition unavailable | Curatium'
         : null,
+    announcement: loadedExhibition ? `Metadata for ${loadedExhibition.title}` : null,
   })
   const serverMetadata = loadedExhibition ? metadataFromExhibition(loadedExhibition) : emptyMetadata
   const formMetadata = loadedId === exhibitionId ? metadata : serverMetadata

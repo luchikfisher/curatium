@@ -44,6 +44,7 @@ describe('route title registry lifecycle', () => {
         routeId: 'metadata',
         exhibitionId: 1,
         title: 'Late metadata owner | Curatium',
+        announcement: null,
       })
     })
     expect(document.title).toBe('Artworks owner 1 | Curatium')
@@ -59,6 +60,7 @@ describe('route title registry lifecycle', () => {
         routeId: 'metadata',
         exhibitionId: 1,
         title: 'Older session title | Curatium',
+        announcement: null,
       })
       firstVisit.registry.remove(firstVisit.owner)
     })
@@ -70,6 +72,7 @@ describe('route title registry lifecycle', () => {
         routeId: 'metadata',
         exhibitionId: 1,
         title: 'Authoritative rename | Curatium',
+        announcement: null,
       })
     })
     expect(document.title).toBe('Authoritative rename | Curatium')
@@ -91,6 +94,7 @@ describe('route title registry lifecycle', () => {
         routeId: 'metadata',
         exhibitionId: 2,
         title: 'Injected exhibition title | Curatium',
+        announcement: null,
       })
     })
 
@@ -121,6 +125,7 @@ describe('route title registry lifecycle', () => {
         routeId: 'metadata',
         exhibitionId: 1,
         title: 'Same-session update | Curatium',
+        announcement: null,
       })
     })
     expect(document.title).toBe('Same-session update | Curatium')
@@ -191,6 +196,7 @@ function RegistryOwner({
       routeId,
       exhibitionId,
       title: `${titlePrefix} ${exhibitionId} | Curatium`,
+      announcement: null,
     })
     return () => registry.remove(currentOwner)
   }, [exhibitionId, onOwner, registry, routeId, titlePrefix])

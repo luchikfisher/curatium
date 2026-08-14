@@ -6,10 +6,12 @@ export function useRouteDocumentTitle({
   routeId,
   exhibitionId,
   title,
+  announcement = null,
 }: {
   routeId: RouteOrientationId
   exhibitionId: number | null
   title: string | null
+  announcement?: string | null
 }) {
   const registry = useContext(RouteTitleRegistryContext)
   const ownerRef = useRef(Symbol('route-title-registration'))
@@ -20,8 +22,9 @@ export function useRouteDocumentTitle({
       routeId,
       exhibitionId,
       title,
+      announcement,
     })
-  }, [exhibitionId, registry, routeId, title])
+  }, [announcement, exhibitionId, registry, routeId, title])
 
   useLayoutEffect(() => () => {
     registry?.remove(ownerRef.current)

@@ -128,6 +128,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         : loadError
           ? 'Exhibition unavailable | Curatium'
           : null,
+    announcement: exhibitionNotFound || isFrontendError(loadError) && loadError.status === 404
+      ? null
+      : loadedExhibition
+        ? `Artworks for ${loadedExhibition.title}`
+        : null,
   })
 
   const runSearch = useCallback(async (normalizedQuery: string, page: number) => {

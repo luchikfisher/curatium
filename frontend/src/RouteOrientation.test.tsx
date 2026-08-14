@@ -61,18 +61,26 @@ describe('route document titles', () => {
     ['/exhibitions', 'Curator exhibitions | Curatium'],
     ['/exhibitions/new', 'Create exhibition | Curatium'],
     ['/missing-page', 'Page not found | Curatium'],
-  ])('sets the static title for %s', (path, expectedTitle) => {
+  ])('sets the static title for %s', async (path, expectedTitle) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond([])))
     renderAt(path)
     expect(document.title).toBe(expectedTitle)
+    const expectedAnnouncement = path === '/'
+      ? 'Exhibitions'
+      : path === '/exhibitions'
+        ? 'Curator exhibitions'
+        : path === '/exhibitions/new'
+          ? 'Create exhibition'
+          : 'Page not found'
+    await waitFor(() => expect(routeAnnouncement()).toHaveTextContent(expectedAnnouncement))
   })
 
   it.each([
-    ['/exhibitions/1/edit', 'Loading exhibition metadata | Curatium', 'Metadata — Lines of Light | Curatium'],
-    ['/exhibitions/1/artworks', 'Loading exhibition artworks | Curatium', 'Artworks — Lines of Light | Curatium'],
-    ['/exhibitions/1/preview', 'Loading curator preview | Curatium', 'Preview — Lines of Light | Curatium'],
-    ['/visit/1', 'Loading exhibition | Curatium', 'Lines of Light | Curatium'],
-  ])('replaces the loading title with authoritative data for %s', async (path, loadingTitle, loadedTitle) => {
+    ['/exhibitions/1/edit', 'Loading exhibition metadata | Curatium', 'Metadata — Lines of Light | Curatium', 'Metadata for Lines of Light'],
+    ['/exhibitions/1/artworks', 'Loading exhibition artworks | Curatium', 'Artworks — Lines of Light | Curatium', 'Artworks for Lines of Light'],
+    ['/exhibitions/1/preview', 'Loading curator preview | Curatium', 'Preview — Lines of Light | Curatium', 'Preview for Lines of Light'],
+    ['/visit/1', 'Loading exhibition | Curatium', 'Lines of Light | Curatium', 'Exhibition: Lines of Light'],
+  ])('replaces the loading title with authoritative data for %s', async (path, loadingTitle, loadedTitle, loadedAnnouncement) => {
     let resolveRequest: ((response: Response) => void) | undefined
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise<Response>((resolve) => {
       resolveRequest = resolve
@@ -80,11 +88,13 @@ describe('route document titles', () => {
 
     renderAt(path)
     expect(document.title).toBe(loadingTitle)
+    expect(routeAnnouncement()).toHaveTextContent('')
 
     await act(async () => {
       resolveRequest?.(respond(detail(1, 'Lines of Light', path === '/visit/1' ? 'PUBLISHED' : 'DRAFT')))
     })
     await waitFor(() => expect(document.title).toBe(loadedTitle))
+    await waitFor(() => expect(routeAnnouncement()).toHaveTextContent(loadedAnnouncement))
   })
 
   it.each([
@@ -97,6 +107,7 @@ describe('route document titles', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt(path)
     expect(document.title).toBe('Invalid exhibition address | Curatium')
+    expect(routeAnnouncement()).toHaveTextContent('')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -109,6 +120,7 @@ describe('route document titles', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(apiError(404), 404)))
     renderAt(path)
     await waitFor(() => expect(document.title).toBe('Exhibition not found | Curatium'))
+    expect(routeAnnouncement()).toHaveTextContent('')
   })
 
   it.each([
@@ -120,6 +132,7 @@ describe('route document titles', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(apiError(503), 503)))
     renderAt(path)
     await waitFor(() => expect(document.title).toBe(expectedTitle))
+    expect(routeAnnouncement()).toHaveTextContent('')
   })
 
   it('installs the next exhibition loading title immediately and ignores the previous response', async () => {
@@ -200,3 +213,9 @@ describe('route document titles', () => {
     expect(document.title).toBe('Curator handoff | Curatium')
   })
 })
+
+function routeAnnouncement(): HTMLElement {
+  const announcement = document.querySelector<HTMLElement>('.route-announcement')
+  if (!announcement) throw new Error('Route announcement region was not rendered.')
+  return announcement
+}

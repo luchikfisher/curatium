@@ -44,6 +44,11 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         : error
           ? 'Preview unavailable | Curatium'
           : null,
+    announcement: publicationNotFound || isFrontendError(error) && error.status === 404
+      ? null
+      : loadedExhibition
+        ? `Preview for ${loadedExhibition.title}`
+        : null,
   })
 
   useEffect(() => () => mutationController.current?.abort(), [])

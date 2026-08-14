@@ -31,6 +31,8 @@ interface RouteTitleRegistryState {
   registrations: Map<string, RegisteredRouteTitle>
   focusRequested: boolean
   focusTarget: RegisteredRouteFocusTarget | null
+  announcement: string
+  announcementCompleted: boolean
 }
 
 interface RouteFocusIntent {
@@ -75,12 +77,17 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
         next.delete(key)
         return { ...current, registrations: next }
       }
-      if (existing?.title === candidate.title) return current
+      if (
+        existing?.title === candidate.title
+        && existing.announcement === candidate.announcement
+      ) {
+        return current
+      }
       const next = new Map(current.registrations)
       next.set(key, candidate)
       return { ...current, registrations: next }
     })
-  }, [])
+  }, [setRegistryState])
 
   const remove = useCallback((owner: symbol, session: symbol) => {
     setRegistryState((current) => {
@@ -93,7 +100,7 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
       next.delete(entry[0])
       return { ...current, registrations: next }
     })
-  }, [])
+  }, [setRegistryState])
 
   const registerFocusTarget = useCallback((candidate: RegisteredRouteFocusTarget) => {
     setRegistryState((current) => {
@@ -109,7 +116,7 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
       if (existing?.owner === candidate.owner && existing.target === candidate.target) return current
       return { ...current, focusTarget: candidate }
     })
-  }, [])
+  }, [setRegistryState])
 
   const removeFocusTarget = useCallback((owner: symbol, session: symbol) => {
     setRegistryState((current) => {
@@ -122,7 +129,7 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
       }
       return { ...current, focusTarget: null }
     })
-  }, [])
+  }, [setRegistryState])
 
   const registry = useMemo(() => {
     return {
@@ -136,17 +143,39 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
       removeFocusTarget: (owner: symbol) => removeFocusTarget(owner, activeSession),
     }
   }, [activeSession, registerFocusTarget, remove, removeFocusTarget, update])
-  const title = registeredTitleForCurrentRoute(activeRegistryState, currentRoute)
+  const currentRegistration = registeredOrientationForCurrentRoute(activeRegistryState, currentRoute)
+  const title = currentRegistration?.title
     ?? currentRoute.metadata?.loadingTitle
     ?? currentRoute.metadata?.staticTitle
     ?? 'Curatium'
   const focusOwner = currentRoute.metadata?.focusOwner ?? null
   const focusRequested = activeRegistryState.focusRequested
   const registeredFocusTarget = activeRegistryState.focusTarget?.target ?? null
+  const announcementCandidate = currentRegistration?.announcement
+    ?? currentRoute.metadata?.staticAnnouncement
+    ?? null
+  const announcement = activeRegistryState.announcement
+  const announcementCompleted = activeRegistryState.announcementCompleted
 
   useLayoutEffect(() => {
     document.title = title
   }, [title])
+
+  useEffect(() => {
+    if (announcementCompleted || !announcementCandidate) return
+    const session = activeSession
+    const timeout = window.setTimeout(() => {
+      setRegistryState((current) => {
+        if (current.session !== session || current.announcementCompleted) return current
+        return {
+          ...current,
+          announcement: announcementCandidate,
+          announcementCompleted: true,
+        }
+      })
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [activeSession, announcementCandidate, announcementCompleted])
 
   useEffect(() => {
     let intent = focusIntentRef.current
@@ -201,6 +230,9 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
 
   return (
     <RouteTitleRegistryContext.Provider value={registry}>
+      <div className="route-announcement" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
       {children}
     </RouteTitleRegistryContext.Provider>
   )
@@ -220,10 +252,10 @@ function currentOrientationRoute(matches: ReturnType<typeof useMatches>): Curren
   return { metadata: null, exhibitionId: null }
 }
 
-function registeredTitleForCurrentRoute(
+function registeredOrientationForCurrentRoute(
   registryState: RouteTitleRegistryState,
   currentRoute: CurrentRoute,
-): string | null {
+): RegisteredRouteTitle | null {
   if (!currentRoute.metadata) return null
   const registration = registryState.registrations.get(registrationKey(
     currentRoute.metadata.id,
@@ -237,7 +269,7 @@ function registeredTitleForCurrentRoute(
   ) {
     return null
   }
-  return registration.title
+  return registration
 }
 
 function registrationKey(routeId: RouteOrientationId, exhibitionId: number | null): string {
@@ -257,6 +289,8 @@ function createRegistryState(identity: string, focusRequested: boolean): RouteTi
     registrations: new Map(),
     focusRequested,
     focusTarget: null,
+    announcement: '',
+    announcementCompleted: false,
   }
 }
 
