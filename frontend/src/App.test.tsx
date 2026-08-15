@@ -112,6 +112,7 @@ describe('route screens', () => {
     expect(image).toHaveAttribute('src', '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail')
     expect(image).toHaveAttribute('loading', 'lazy')
     expect(image).toHaveAttribute('alt', '')
+    expect(image?.closest('.artwork-image')).toHaveClass('artwork-image--cover')
   })
 
   it('retries a recoverable catalogue error', async () => {

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 
+export type ArtworkImageVisualRole = 'thumbnail' | 'cover' | 'artwork'
+
 type ArtworkImageProps = {
   src: string | null | undefined
+  visualRole: ArtworkImageVisualRole
   alt?: string
   decorative?: boolean
   className?: string
@@ -10,6 +13,7 @@ type ArtworkImageProps = {
 
 export function ArtworkImage({
   src,
+  visualRole,
   alt = 'Artwork image',
   decorative = false,
   className,
@@ -24,7 +28,12 @@ export function ArtworkImage({
   const loaded = hasSource && loadedSrc === src && !unavailable
   const placeholderLabel = `Artwork image unavailable: ${alt}`
   const state = unavailable ? 'failed' : loaded ? 'loaded' : 'loading'
-  const classes = ['artwork-image', `artwork-image--${state}`, className].filter(Boolean).join(' ')
+  const classes = [
+    'artwork-image',
+    `artwork-image--${visualRole}`,
+    `artwork-image--${state}`,
+    className,
+  ].filter(Boolean).join(' ')
 
   const retry = () => {
     setLoadedSrc(null)

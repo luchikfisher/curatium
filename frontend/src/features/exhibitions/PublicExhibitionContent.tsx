@@ -71,7 +71,7 @@ export function PublicExhibitionContent({
 function CoverArtwork({ item }: { item: PublicExhibitionItem }) {
   return (
     <article className="public-exhibition__cover">
-      <ArtworkImage src={item.artwork.imageUrl} alt={`Cover artwork: ${item.artwork.title}`} className="public-exhibition__image" />
+      <ArtworkImage src={item.artwork.imageUrl} visualRole="cover" alt={`Cover artwork: ${item.artwork.title}`} className="public-exhibition__image" />
       <div>
         <p className="public-exhibition__cover-label">Current cover</p>
         <h3>{item.artwork.title}</h3>
@@ -88,7 +88,7 @@ function PublicArtwork({ item, itemCount }: { item: PublicExhibitionItem; itemCo
   return (
     <li>
       <article className="public-exhibition__artwork">
-        <ArtworkImage src={artwork.imageUrl} alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} className="public-exhibition__image" />
+        <ArtworkImage src={artwork.imageUrl} visualRole="artwork" alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} className="public-exhibition__image" />
         <div className="public-exhibition__artwork-body">
           <p className="public-exhibition__position">Artwork {item.position} of {itemCount}</p>
           <h3>{artwork.title}</h3>

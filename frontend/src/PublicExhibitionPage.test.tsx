@@ -95,9 +95,11 @@ describe('public exhibition view', () => {
     expect(await screen.findByRole('heading', { name: 'Lines of Light' })).toBeInTheDocument()
     expect(screen.getByText('A study of light and form.')).toBeInTheDocument()
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Cover artwork: Nocturne' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })).toHaveAttribute(
+    const coverImage = screen.getByRole('img', { name: 'Cover artwork: Nocturne' })
+    const artworkImage = screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })
+    expect(coverImage.closest('.artwork-image')).toHaveClass('artwork-image--cover')
+    expect(artworkImage.closest('.artwork-image')).toHaveClass('artwork-image--artwork')
+    expect(artworkImage).toHaveAttribute(
       'src',
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
     )
