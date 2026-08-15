@@ -174,6 +174,36 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 .state-panel p { max-width: 36rem; margin: 0 auto; color: var(--muted); line-height: 1.55; }
 .state-panel .button { margin-top: 1.5rem; }
 .loading-mark { display: block; width: 1.5rem; height: 1.5rem; margin: 0 auto 1rem; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
+.loading-layout { position: relative; min-width: 0; }
+.loading-layout > .state-panel { position: absolute; z-index: 1; top: var(--space-4); right: var(--space-4); left: var(--space-4); width: min(calc(100% - 2rem), 26rem); margin-inline: auto; padding: var(--space-4); background: rgb(255 254 251 / 94%); box-shadow: var(--shadow-subtle); }
+.loading-layout > .state-panel .loading-mark { margin-bottom: var(--space-2); }
+.loading-geometry { min-width: 0; }
+.loading-shape { display: block; max-width: 100%; background: linear-gradient(110deg, var(--color-border), var(--color-information-surface)); }
+.loading-geometry--exhibition-grid { margin: 0; }
+.loading-card { min-width: 0; overflow: hidden; border: var(--border-width) solid var(--line); background: var(--paper); }
+.loading-card__media { width: 100%; aspect-ratio: 4 / 3; }
+.loading-card__body { display: grid; gap: var(--space-3); min-height: 10rem; padding: var(--space-6); }
+.loading-shape--eyebrow { width: 8rem; height: .75rem; }
+.loading-shape--title { width: min(100%, 34rem); height: clamp(2.75rem, 6vw, 4.5rem); margin-top: var(--space-4); }
+.loading-shape--lede { width: min(88%, 38rem); height: 1.25rem; margin-top: var(--space-5); }
+.loading-shape--context-title { width: min(56%, 20rem); height: 1.25rem; }
+.loading-shape--context-links { width: min(88%, 36rem); height: 1rem; margin-top: var(--space-4); }
+.loading-shape--section-title { width: min(52%, 17rem); height: 1.8rem; }
+.loading-shape--card-title { width: min(82%, 18rem); height: 1.5rem; }
+.loading-shape--line { width: min(100%, 38rem); height: 1rem; }
+.loading-shape--line-short { width: min(68%, 24rem); }
+.loading-shape--field { width: 100%; height: var(--control-min-height); }
+.loading-shape--field-large { height: 7rem; }
+.loading-route-shell { padding-bottom: 6rem; }
+.loading-route-shell__heading { padding: 5rem 0 2.25rem; }
+.loading-route-shell__context { min-height: 5.25rem; margin-bottom: var(--space-6); border-block: var(--border-width) solid var(--line); padding: var(--space-4) 0; }
+.loading-route-shell__section { display: grid; gap: var(--space-4); min-height: 10rem; border-top: var(--border-width) solid var(--line); padding: var(--space-8) 0; }
+.loading-route-shell__section--form { max-width: 48rem; gap: var(--space-5); min-height: 22rem; }
+.loading-route-shell__artwork-row { grid-template-columns: 8rem minmax(0, 1fr); align-items: start; max-width: 48rem; }
+.loading-route-shell__artwork-row > div { display: grid; gap: var(--space-3); min-width: 0; }
+.loading-route-shell__thumbnail { width: 8rem; aspect-ratio: 4 / 3; }
+.loading-route-shell__gallery { width: 100%; height: clamp(18rem, 48vw, 32rem); border: var(--border-width) solid var(--line); background: var(--color-information-surface); }
+.loading-route-shell--public-exhibition .loading-route-shell__heading { max-width: 52rem; }
 .placeholder-page { max-width: 50rem; min-height: 36rem; }
 .route-context { color: var(--muted); font-variant-numeric: tabular-nums; }
 .editor-page { padding-bottom: 6rem; }
@@ -441,6 +471,12 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
 @media (max-width: 42rem) {
   .site-header { min-height: 4.25rem; }
   .site-header nav { gap: 1rem; }
+  .loading-layout > .state-panel { right: 0; left: 0; width: min(100%, 24rem); }
+  .loading-route-shell { padding-bottom: 4rem; }
+  .loading-route-shell__heading { padding-block: 4rem 2.5rem; }
+  .loading-route-shell__artwork-row { grid-template-columns: 1fr; }
+  .loading-route-shell__thumbnail { width: 100%; }
+  .loading-route-shell__gallery { height: clamp(16rem, 78vw, 24rem); }
   .page-heading, .page-heading--hero { padding-block: 4rem 2.5rem; }
   .page-heading--with-action { align-items: stretch; flex-direction: column; }
   .page-heading--with-action .button { align-self: flex-start; }

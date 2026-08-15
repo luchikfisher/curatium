@@ -124,7 +124,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
-    if (!error) return <LoadingState label="Loading curator preview…" />
+    if (!error) return <LoadingState label="Loading curator preview…" geometry="preview" />
     return <PreviewLoadError error={error} onRetry={retryPreview} />
   }
 

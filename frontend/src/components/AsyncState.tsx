@@ -1,11 +1,122 @@
 import { isFrontendError } from '../api/errors'
 
-export function LoadingState({ label }: { label: string }) {
+export type LoadingGeometry =
+  | 'exhibition-grid'
+  | 'metadata'
+  | 'artworks'
+  | 'preview'
+  | 'public-exhibition'
+
+export function LoadingState({
+  label,
+  geometry,
+}: {
+  label: string
+  geometry?: LoadingGeometry
+}) {
   return (
-    <div className="state-panel" role="status" aria-live="polite">
-      <span className="loading-mark" aria-hidden="true" />
-      <p>{label}</p>
+    <div className={geometry ? 'loading-layout' : undefined}>
+      <div className="state-panel" role="status" aria-live="polite">
+        <span className="loading-mark" aria-hidden="true" />
+        <p>{label}</p>
+      </div>
+      {geometry && <ReservedLoadingGeometry geometry={geometry} />}
     </div>
+  )
+}
+
+function ReservedLoadingGeometry({ geometry }: { geometry: LoadingGeometry }) {
+  if (geometry === 'exhibition-grid') {
+    return (
+      <div className="exhibition-grid loading-geometry loading-geometry--exhibition-grid" aria-hidden="true">
+        <LoadingCard />
+        <LoadingCard />
+      </div>
+    )
+  }
+
+  return (
+    <div className={`loading-geometry loading-route-shell loading-route-shell--${geometry}`} aria-hidden="true">
+      <div className="loading-route-shell__heading">
+        <span className="loading-shape loading-shape--eyebrow" />
+        <span className="loading-shape loading-shape--title" />
+        <span className="loading-shape loading-shape--lede" />
+      </div>
+      {geometry !== 'public-exhibition' && (
+        <div className="loading-route-shell__context">
+          <span className="loading-shape loading-shape--context-title" />
+          <span className="loading-shape loading-shape--context-links" />
+        </div>
+      )}
+      <ReservedRouteContent geometry={geometry} />
+    </div>
+  )
+}
+
+function LoadingCard() {
+  return (
+    <div className="loading-card">
+      <span className="loading-shape loading-card__media" />
+      <div className="loading-card__body">
+        <span className="loading-shape loading-shape--card-title" />
+        <span className="loading-shape loading-shape--line" />
+        <span className="loading-shape loading-shape--line loading-shape--line-short" />
+      </div>
+    </div>
+  )
+}
+
+function ReservedRouteContent({ geometry }: { geometry: Exclude<LoadingGeometry, 'exhibition-grid'> }) {
+  if (geometry === 'metadata') {
+    return (
+      <div className="loading-route-shell__section loading-route-shell__section--form">
+        <span className="loading-shape loading-shape--section-title" />
+        <span className="loading-shape loading-shape--field" />
+        <span className="loading-shape loading-shape--field loading-shape--field-large" />
+      </div>
+    )
+  }
+
+  if (geometry === 'artworks') {
+    return (
+      <>
+        <div className="loading-route-shell__section">
+          <span className="loading-shape loading-shape--section-title" />
+          <span className="loading-shape loading-shape--line" />
+        </div>
+        <div className="loading-route-shell__section loading-route-shell__artwork-row">
+          <span className="loading-shape loading-route-shell__thumbnail" />
+          <div>
+            <span className="loading-shape loading-shape--card-title" />
+            <span className="loading-shape loading-shape--line loading-shape--line-short" />
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  if (geometry === 'preview') {
+    return (
+      <>
+        <span className="loading-shape loading-route-shell__gallery" />
+        <div className="loading-route-shell__section">
+          <span className="loading-shape loading-shape--section-title" />
+          <span className="loading-shape loading-shape--line" />
+          <span className="loading-shape loading-shape--line loading-shape--line-short" />
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <span className="loading-shape loading-route-shell__gallery" />
+      <div className="loading-route-shell__section">
+        <span className="loading-shape loading-shape--section-title" />
+        <span className="loading-shape loading-shape--line" />
+        <span className="loading-shape loading-shape--line loading-shape--line-short" />
+      </div>
+    </>
   )
 }
 

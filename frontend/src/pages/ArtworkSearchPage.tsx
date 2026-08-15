@@ -294,7 +294,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
-    if (!loadError) return <LoadingState label="Loading exhibition artworks…" />
+    if (!loadError) return <LoadingState label="Loading exhibition artworks…" geometry="artworks" />
     if (isFrontendError(loadError) && loadError.status === 404) {
       return <ExhibitionNotFound onRetry={retryLoad} />
     }
