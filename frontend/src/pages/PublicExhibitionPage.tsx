@@ -45,7 +45,7 @@ function PublicExhibition({ exhibitionId }: { exhibitionId: number }) {
   }, [curatorReturnTo, location.pathname, navigate])
 
   if (exhibition?.id !== exhibitionId) {
-    if (!error && exhibition === null) return <LoadingState label="Loading exhibition…" />
+    if (!error && exhibition === null) return <LoadingState label="Loading exhibition…" geometry="public-exhibition" />
     if (isFrontendError(error) && error.status === 404) return <PublicExhibitionNotFound onRetry={retry} />
     return <PublicExhibitionLoadError
       error={error ?? new FrontendError('The server returned an exhibition for a different address.', 'malformed', 200)}

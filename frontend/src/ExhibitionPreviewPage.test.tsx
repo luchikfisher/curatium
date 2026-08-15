@@ -88,11 +88,15 @@ describe('curator exhibition preview', () => {
     expect(screen.getByText('A study of light and form.')).toBeInTheDocument()
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
     expect(screen.getByText('This draft is visible only in the curator workspace.')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Cover artwork: Nocturne' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Cover artwork: Nocturne' })).toHaveAttribute(
+    const coverImage = screen.getByRole('img', { name: 'Cover artwork: Nocturne' })
+    expect(coverImage.closest('.artwork-image')).toHaveClass('artwork-image--cover')
+    expect(coverImage).toHaveAttribute(
       'src',
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
     )
+    const detailImages = screen.getAllByRole('img', { name: /^Artwork \d+ of 2: Nocturne$/ })
+    expect(detailImages).toHaveLength(2)
+    expect(detailImages.every((image) => image.closest('.artwork-image')?.classList.contains('artwork-image--artwork'))).toBe(true)
     expect(screen.getByText('Note for artwork 1.')).toBeInTheDocument()
     expect(screen.getByText('Artist unknown')).toBeInTheDocument()
     expect(screen.getAllByText('Public domain')).toHaveLength(2)

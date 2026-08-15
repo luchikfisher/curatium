@@ -294,7 +294,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
-    if (!loadError) return <LoadingState label="Loading exhibition artworks…" />
+    if (!loadError) return <LoadingState label="Loading exhibition artworks…" geometry="artworks" />
     if (isFrontendError(loadError) && loadError.status === 404) {
       return <ExhibitionNotFound onRetry={retryLoad} />
     }
@@ -822,6 +822,7 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
           <div className="cover-selection__current">
             <ArtworkImage
               src={coverItem.artwork.thumbnailUrl}
+              visualRole="thumbnail"
               alt={`Current cover: ${coverItem.artwork.title}`}
               className="cover-selection__image"
             />
@@ -1019,8 +1020,9 @@ function PublishedArtworkSummary({
       <article aria-labelledby={`published-artwork-${item.id}-title`}>
         <div className="published-artwork-summary__heading">
           <ArtworkImage
-            src={item.artwork.thumbnailUrl}
-            alt={`Thumbnail of ${item.artwork.title}`}
+            src={item.artwork.imageUrl || item.artwork.thumbnailUrl}
+            visualRole="artwork"
+            alt={`Artwork ${item.position} of ${itemCount}: ${item.artwork.title}`}
             className="published-artwork-summary__image"
           />
           <div>
@@ -1119,6 +1121,7 @@ function CurrentArtworkItem({
         <div className="current-artwork-item__summary">
           <ArtworkImage
             src={item.artwork.thumbnailUrl}
+            visualRole="thumbnail"
             alt={`Thumbnail of ${item.artwork.title}`}
             className="current-artwork-item__image"
           />
@@ -1259,6 +1262,7 @@ function SearchContent({
             <article className="museum-artwork-card" key={artworkKey(artwork)}>
               <ArtworkImage
                 src={artwork.thumbnailUrl}
+                visualRole="thumbnail"
                 alt={`Thumbnail of ${artwork.title}`}
                 loading="lazy"
                 className="museum-artwork-card__image"

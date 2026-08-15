@@ -124,7 +124,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   }
 
   if (!exhibition || exhibition.id !== exhibitionId) {
-    if (!error) return <LoadingState label="Loading curator preview…" />
+    if (!error) return <LoadingState label="Loading curator preview…" geometry="preview" />
     return <PreviewLoadError error={error} onRetry={retryPreview} />
   }
 
@@ -406,7 +406,7 @@ function PublicationError({ error }: { error: Error }) {
 function CoverArtwork({ item }: { item: ExhibitionItem }) {
   return (
     <article className="preview-cover__content">
-      <ArtworkImage src={imageFor(item.artwork)} alt={`Cover artwork: ${item.artwork.title}`} className="preview-artwork-image" />
+      <ArtworkImage src={imageFor(item.artwork)} visualRole="cover" alt={`Cover artwork: ${item.artwork.title}`} className="preview-artwork-image" />
       <div>
         <p className="preview-cover__label">Current cover</p>
         <h3>{item.artwork.title}</h3>
@@ -421,7 +421,7 @@ function PreviewArtwork({ item, itemCount }: { item: ExhibitionItem; itemCount: 
   return (
     <li>
       <article className="preview-artwork">
-        <ArtworkImage src={imageFor(artwork)} alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} className="preview-artwork-image" />
+        <ArtworkImage src={imageFor(artwork)} visualRole="artwork" alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} className="preview-artwork-image" />
         <div className="preview-artwork__body">
           <p className="preview-artwork__position">Artwork {item.position} of {itemCount}</p>
           <h3>{artwork.title}</h3>

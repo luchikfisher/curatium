@@ -19,7 +19,7 @@ export function PublicCataloguePage() {
         <div className="section-heading">
           <h2 id="catalogue-heading">Now showing</h2>
         </div>
-        {data === null && !error && <LoadingState label="Loading exhibitions…" />}
+        {data === null && !error && <LoadingState label="Loading exhibitions…" geometry="exhibition-grid" />}
         {error && <ErrorState error={error} onRetry={retry} />}
         {data?.length === 0 && (
           <EmptyState title="The gallery is quiet">

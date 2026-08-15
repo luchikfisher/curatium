@@ -20,7 +20,7 @@ export function CuratorExhibitionsPage() {
         </Link>
       </section>
       <section className="content-section" aria-label="Your exhibitions">
-        {data === null && !error && <LoadingState label="Loading your exhibitions…" />}
+        {data === null && !error && <LoadingState label="Loading your exhibitions…" geometry="exhibition-grid" />}
         {error && <ErrorState error={error} onRetry={retry} />}
         {data?.length === 0 && (
           <EmptyState title="Begin your first exhibition">

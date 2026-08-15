@@ -28,6 +28,7 @@ export function ExhibitionCard({
     <article className="exhibition-card">
       <ArtworkImage
         src={exhibition.coverImageUrl}
+        visualRole="cover"
         decorative
         loading="lazy"
         className="exhibition-card__image"

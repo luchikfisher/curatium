@@ -478,6 +478,8 @@ describe('museum artwork search and add flow', () => {
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
     )
     expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' })).toHaveAttribute('loading', 'lazy')
+    expect(screen.getByRole('img', { name: 'Thumbnail of Nocturne' }).closest('.artwork-image'))
+      .toHaveClass('artwork-image--thumbnail')
     expect(screen.getByRole('status')).toHaveTextContent('1 result on page 1.')
     expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
     expect(document.querySelector('.museum-results__grid')).not.toHaveAttribute('aria-live')
@@ -745,10 +747,12 @@ describe('museum artwork search and add flow', () => {
     expect(document.querySelector('.museum-results')).not.toHaveAttribute('aria-live')
     expect(screen.getByRole('heading', { name: 'Current artworks (1/10)' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Committed museum title' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Thumbnail of Committed museum title' })).toHaveAttribute(
+    const committedThumbnail = screen.getByRole('img', { name: 'Thumbnail of Committed museum title' })
+    expect(committedThumbnail).toHaveAttribute(
       'src',
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
     )
+    expect(committedThumbnail.closest('.artwork-image')).toHaveClass('artwork-image--thumbnail')
     expect(screen.getByRole('heading', { name: 'Nocturne' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1/items', expect.objectContaining({
       method: 'POST',
@@ -869,6 +873,9 @@ describe('museum artwork search and add flow', () => {
     expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Published authority')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Committed published artwork' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Published artworks (1)' })).toBeInTheDocument()
+    const publishedImage = screen.getByRole('img', { name: 'Artwork 1 of 1: Committed published artwork' })
+    expect(publishedImage).toHaveAttribute('src', committed.artwork.imageUrl)
+    expect(publishedImage.closest('.artwork-image')).toHaveClass('artwork-image--artwork')
     expect(screen.getByRole('link', { name: 'Return to preview to unpublish' })).toHaveAttribute(
       'href',
       '/exhibitions/1/preview',

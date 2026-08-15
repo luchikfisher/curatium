@@ -95,7 +95,7 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
   }, [confirmingDelete])
 
   if (!exhibition || exhibition.id !== exhibitionId) {
-    if (!loadError) return <LoadingState label="Loading exhibition metadata…" />
+    if (!loadError) return <LoadingState label="Loading exhibition metadata…" geometry="metadata" />
     if (isFrontendError(loadError) && loadError.status === 404) {
       return <ExhibitionNotFound onRetry={retry} />
     }
