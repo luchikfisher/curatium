@@ -832,6 +832,80 @@ describe('ExhibitionGallery texture recovery', () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'Unavailable artwork images' })).toHaveTextContent(copy))
   }
 
+  it.each([1, 2, 4])(
+    'keeps narrow recovery in the scene flow before and after tour start with %i failed texture(s)',
+    async (failedCount) => {
+      useGalleryViewport(true)
+      enableTextureScene()
+      const urls = [firstUrl, secondUrl, thirdUrl, fourthUrl]
+      urls.slice(0, failedCount).forEach((url) => textureState.failedUrls.add(url))
+      renderTextureGallery(urls)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+      await waitForUnavailableCount(failedCount)
+      markRendererReady()
+
+      const originalCanvas = screen.getByTestId('gallery-canvas')
+      const recovery = screen.getByRole('region', { name: 'Unavailable artwork images' })
+      const introduction = document.querySelector('.gallery-introduction')
+      const begin = screen.getByRole('button', { name: 'Begin tour' })
+      if (!introduction) throw new Error('Gallery introduction was not rendered.')
+
+      expect(screen.getAllByRole('region', { name: 'Unavailable artwork images' })).toHaveLength(1)
+      expectBefore(originalCanvas, recovery)
+      expectBefore(recovery, introduction)
+      expect(screen.getByRole('button', { name: 'View as standard gallery' })).toBeEnabled()
+      expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toBeInTheDocument()
+
+      begin.focus()
+      await userEvent.keyboard('{Enter}')
+
+      const navigation = screen.getByRole('navigation', { name: 'Artwork navigation' })
+      expect(navigation).toHaveFocus()
+      expectBefore(navigation, originalCanvas)
+      expectBefore(originalCanvas, recovery)
+      expect(screen.getByRole('button', { name: 'Next artwork' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Open information for artwork 1 of 4: Artwork 1' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'View as standard gallery' })).toBeEnabled()
+      expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toBeInTheDocument()
+      expect(screen.getByTestId('gallery-canvas')).toBe(originalCanvas)
+      expect(canvasState.sessions.size).toBe(1)
+    },
+  )
+
+  it('keeps narrow retry failure and success within the current Canvas session', async () => {
+    useGalleryViewport(true)
+    enableTextureScene()
+    textureState.failedUrls.add(firstUrl)
+    renderTextureGallery([firstUrl, secondUrl])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
+    await waitForUnavailableCount(1)
+    markRendererReady()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
+    const originalCanvas = screen.getByTestId('gallery-canvas')
+
+    const failedRetry = screen.getByRole('button', { name: 'Retry unavailable images' })
+    failedRetry.focus()
+    await userEvent.keyboard('{Enter}')
+    await waitForUnavailableCount(1)
+
+    expect(textureState.clearCalls).toEqual([firstUrl])
+    expect(screen.getByTestId('gallery-canvas')).toBe(originalCanvas)
+    expect(canvasState.sessions.size).toBe(1)
+
+    textureState.failedUrls.delete(firstUrl)
+    const successfulRetry = screen.getByRole('button', { name: 'Retry unavailable images' })
+    successfulRetry.focus()
+    await userEvent.keyboard('{Enter}')
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Unavailable artwork images' })).not.toBeInTheDocument())
+    expect(textureState.clearCalls).toEqual([firstUrl, firstUrl])
+    expect(screen.getByTestId('gallery-canvas')).toBe(originalCanvas)
+    expect(canvasState.sessions.size).toBe(1)
+    expect(screen.getByRole('navigation', { name: 'Artwork navigation' })).toBeInTheDocument()
+  })
+
   it('keeps other slots and navigation usable when one texture fails', async () => {
     enableTextureScene()
     textureState.failedUrls.add(firstUrl)
@@ -1086,13 +1160,18 @@ describe('ExhibitionGallery texture recovery', () => {
     expect(textureAttempt(102, 0)).toBeInTheDocument()
   })
 
-  it('uses the same unavailable-image action for public and curator gallery fallbacks', async () => {
+  it('uses the same narrow in-flow unavailable-image recovery for public and curator galleries', async () => {
+    useGalleryViewport(true)
     enableTextureScene()
     textureState.failedUrls.add(firstUrl)
     const publicView = renderTextureGallery([firstUrl])
 
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
     await waitForUnavailableCount(1)
+    markRendererReady()
+    expectBefore(screen.getByTestId('gallery-canvas'), screen.getByRole('region', { name: 'Unavailable artwork images' }))
     expect(screen.getByRole('button', { name: 'Retry unavailable images' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Exit to exhibitions' })).toBeInTheDocument()
     publicView.unmount()
 
     render(
@@ -1103,7 +1182,11 @@ describe('ExhibitionGallery texture recovery', () => {
         exitAction={<a href="/edit">Return to exhibition editor</a>}
       />,
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Enter virtual gallery' }))
     await waitForUnavailableCount(1)
+    markRendererReady()
+    expectBefore(screen.getByTestId('gallery-canvas'), screen.getByRole('region', { name: 'Unavailable artwork images' }))
     expect(screen.getByRole('button', { name: 'Retry unavailable images' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Return to exhibition editor' })).toBeInTheDocument()
   })
 })

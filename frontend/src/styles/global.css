@@ -500,6 +500,7 @@ h1 { margin: 0; max-width: 50rem; font-size: clamp(2.7rem, 7vw, 5.6rem); line-he
   .public-exhibition__artwork-body { padding: 0 1.25rem 1.25rem; }
   .public-exhibition__metadata { grid-template-columns: 1fr; }
   .gallery-introduction { position: static; width: auto; max-height: none; margin-top: 1rem; box-shadow: none; transform: none; }
+  .gallery-texture-recovery { position: static; inset: auto; z-index: auto; max-width: none; margin-top: var(--space-4); box-shadow: none; }
   .gallery-information { position: static; width: auto; max-height: none; margin-top: 1rem; box-shadow: none; }
   .gallery-information__metadata { grid-template-columns: 1fr; }
   .current-artwork-item__summary { align-items: stretch; flex-direction: column; }
