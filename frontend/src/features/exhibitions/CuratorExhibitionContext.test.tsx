@@ -44,7 +44,7 @@ describe('CuratorExhibitionContext', () => {
     expect(within(navigation).getAllByRole('link').filter((link) => link.hasAttribute('aria-current'))).toHaveLength(1)
   })
 
-  it('shows authoritative identity as static Draft or Published context', () => {
+  it('shows only the authoritative Draft or Published status as quiet workflow context', () => {
     const view = render(
       <MemoryRouter>
         <CuratorExhibitionContext
@@ -55,7 +55,7 @@ describe('CuratorExhibitionContext', () => {
     )
 
     const context = screen.getByRole('region', { name: 'Current exhibition' })
-    expect(within(context).getByText('Committed title')).not.toHaveAttribute('tabindex')
+    expect(within(context).queryByText('Committed title')).not.toBeInTheDocument()
     expect(within(context).getByText('Draft')).toBeInTheDocument()
 
     view.rerender(
@@ -66,7 +66,7 @@ describe('CuratorExhibitionContext', () => {
         />
       </MemoryRouter>,
     )
-    expect(within(context).getByText('Published committed title')).toBeInTheDocument()
+    expect(within(context).queryByText('Published committed title')).not.toBeInTheDocument()
     expect(within(context).getByText('Published')).not.toHaveAttribute('tabindex')
   })
 })

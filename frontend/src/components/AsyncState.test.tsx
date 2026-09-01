@@ -4,6 +4,7 @@ import { ErrorState, LoadingState, type LoadingGeometry } from './AsyncState'
 
 const geometries: LoadingGeometry[] = [
   'exhibition-grid',
+  'curator-list',
   'metadata',
   'artworks',
   'preview',
@@ -31,6 +32,14 @@ describe('reserved loading geometry', () => {
     const grid = container.querySelector('.loading-geometry--exhibition-grid')
     expect(grid).toHaveClass('exhibition-grid')
     expect(grid?.querySelectorAll('.loading-card')).toHaveLength(2)
+  })
+
+  it('uses the compact management-list contract for curator skeleton rows', () => {
+    const { container } = render(<LoadingState label="Loading exhibitions…" geometry="curator-list" />)
+
+    const list = container.querySelector('.loading-geometry--curator-list')
+    expect(list).toHaveClass('curator-exhibition-list')
+    expect(list?.querySelectorAll('.loading-curator-row')).toHaveLength(2)
   })
 
   it('removes reserved geometry for loaded and error states without duplicating semantics', () => {

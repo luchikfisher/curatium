@@ -1,3 +1,4 @@
+import type { Ref } from 'react'
 import { Link } from 'react-router-dom'
 import type { ExhibitionStatus } from './types'
 
@@ -12,6 +13,7 @@ interface CuratorExhibitionContextProps {
   activeStep: CuratorWorkflowStep
   artworksDestination?: string
   previewState?: unknown
+  statusRef?: Ref<HTMLSpanElement>
 }
 
 const workflowSteps: Array<{
@@ -29,12 +31,17 @@ export function CuratorExhibitionContext({
   activeStep,
   artworksDestination,
   previewState,
+  statusRef,
 }: CuratorExhibitionContextProps) {
   return (
     <section className="curator-context" aria-label="Current exhibition">
       <div className="curator-context__identity">
-        <p className="curator-context__title">{exhibition.title}</p>
-        <span className={`status status--${exhibition.status.toLowerCase()}`}>
+        <span
+          ref={statusRef}
+          className={`status status--${exhibition.status.toLowerCase()}`}
+          role={statusRef ? 'status' : undefined}
+          tabIndex={statusRef ? -1 : undefined}
+        >
           {exhibition.status === 'PUBLISHED' ? 'Published' : 'Draft'}
         </span>
       </div>

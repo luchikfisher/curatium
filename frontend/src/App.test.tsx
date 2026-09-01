@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -21,6 +21,18 @@ function renderAt(path: string) {
   return render(<App />)
 }
 
+function recordFocusEvents() {
+  const elements: Element[] = []
+  const record = (event: FocusEvent) => {
+    if (event.target instanceof Element) elements.push(event.target)
+  }
+  document.addEventListener('focusin', record)
+  return {
+    elements,
+    stop: () => document.removeEventListener('focusin', record),
+  }
+}
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -28,12 +40,80 @@ afterEach(() => {
 
 describe('route screens', () => {
   it('loads the curator exhibition list', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(respond([summary('Lines of Light', 'DRAFT')]))
+    const fetchMock = vi.fn().mockResolvedValue(respond([
+      summary(
+        'Lines of Light',
+        'DRAFT',
+        '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail',
+      ),
+    ]))
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions')
     expect(screen.getByText('Loading your exhibitions…')).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'Lines of Light' })).toBeInTheDocument()
+    const title = await screen.findByRole('heading', { name: 'Lines of Light' })
+    const row = title.closest('.curator-exhibition-row')
+    expect(row).toBeInstanceOf(HTMLElement)
+    const curatorRow = row as HTMLElement
+    expect(within(curatorRow).getByText('Draft')).toBeInTheDocument()
+    expect(within(curatorRow).getByText('3 artworks')).toBeInTheDocument()
+    expect(within(curatorRow).getByText(/Updated/)).toBeInTheDocument()
+    expect(row?.querySelector('time')).toHaveAttribute('datetime', '2026-07-18T12:00:00Z')
+    const cover = row?.querySelector('.artwork-image--thumbnail img')
+    expect(cover).toHaveAttribute('src', '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail')
+    expect(cover).toHaveAttribute('alt', '')
     expect(fetchMock).toHaveBeenCalledWith('/api/exhibitions', expect.any(Object))
+  })
+
+  it('focuses authoritative Metadata and Artworks H1s once without an intermediate main focus', async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === '/api/exhibitions') return Promise.resolve(respond([summary('Lines of Light', 'DRAFT')]))
+      if (path === '/api/exhibitions/1') {
+        return Promise.resolve(respond({
+          id: 1,
+          title: 'Lines of Light',
+          summary: 'A study of light and form.',
+          introduction: 'A committed introduction.',
+          status: 'DRAFT',
+          publishedAt: null,
+          coverArtworkId: null,
+          items: [],
+          createdAt: '2026-07-18T12:00:00Z',
+          updatedAt: '2026-07-18T12:00:00Z',
+        }))
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderAt('/exhibitions')
+
+    const metadataFocusEvents = recordFocusEvents()
+    await userEvent.click(await screen.findByRole('link', { name: 'Edit exhibition 1 of 1: Lines of Light' }))
+
+    const metadataHeading = await screen.findByRole('heading', { name: 'Lines of Light', level: 1 })
+    await waitFor(() => expect(metadataHeading).toHaveFocus())
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 20)))
+    metadataFocusEvents.stop()
+    expect(metadataFocusEvents.elements.filter((element) => (
+      element === metadataHeading || element === document.getElementById('main-content')
+    ))).toEqual([metadataHeading])
+    expect(metadataHeading).toHaveAttribute('tabindex', '-1')
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('main')).not.toHaveFocus()
+
+    const artworksFocusEvents = recordFocusEvents()
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Exhibition workflow' }))
+      .getByRole('link', { name: 'Artworks' }))
+
+    const artworksHeading = await screen.findByRole('heading', { name: 'Lines of Light', level: 1 })
+    await waitFor(() => expect(artworksHeading).toHaveFocus())
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 20)))
+    artworksFocusEvents.stop()
+    expect(artworksFocusEvents.elements.filter((element) => (
+      element === artworksHeading || element === document.getElementById('main-content')
+    ))).toEqual([artworksHeading])
+    expect(artworksHeading).toHaveAttribute('tabindex', '-1')
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('main')).not.toHaveFocus()
   })
 
   it('uses status-aware curator card actions without changing destinations', async () => {

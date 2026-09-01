@@ -4,24 +4,18 @@ import type { ExhibitionSummary } from '../features/exhibitions/types'
 
 export function ExhibitionCard({
   exhibition,
-  curator = false,
   position,
   exhibitionCount,
 }: {
   exhibition: ExhibitionSummary
-  curator?: boolean
   position: number
   exhibitionCount: number
 }) {
-  const destination = curator
-    ? `/exhibitions/${exhibition.id}/edit`
-    : `/visit/${exhibition.id}`
+  const destination = `/visit/${exhibition.id}`
   const count = `${exhibition.artworkCount} ${
     exhibition.artworkCount === 1 ? 'artwork' : 'artworks'
   }`
-  const visibleAction = curator
-    ? exhibition.status === 'PUBLISHED' ? 'Manage exhibition' : 'Edit exhibition'
-    : 'Enter exhibition'
+  const visibleAction = 'Enter exhibition'
   const actionName = `${visibleAction} ${position} of ${exhibitionCount}: ${exhibition.title}`
 
   return (
@@ -34,20 +28,10 @@ export function ExhibitionCard({
         className="exhibition-card__image"
       />
       <div className="exhibition-card__body">
-        {curator && (
-          <span className={`status status--${exhibition.status.toLowerCase()}`}>
-            {exhibition.status === 'DRAFT' ? 'Draft' : 'Published'}
-          </span>
-        )}
         <h2>{exhibition.title}</h2>
         <p>{exhibition.summary || 'No summary has been added yet.'}</p>
         <div className="card-meta">
           <span>{count}</span>
-          {curator && (
-            <time dateTime={exhibition.updatedAt}>
-              Updated {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(exhibition.updatedAt))}
-            </time>
-          )}
         </div>
         <Link className="text-link" to={destination} aria-label={actionName}>
           {visibleAction}

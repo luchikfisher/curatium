@@ -14,18 +14,27 @@ afterEach(() => {
 })
 
 describe('route loading geometry', () => {
-  it.each([
-    ['/', 'Loading exhibitions…'],
-    ['/exhibitions', 'Loading your exhibitions…'],
-  ])('reserves the loaded card grid on %s', (path, label) => {
+  it('reserves the public card grid on /', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
-    const { container } = renderAt(path)
+    const { container } = renderAt('/')
 
     expect(screen.getAllByRole('status')).toHaveLength(1)
-    expect(screen.getByRole('status')).toHaveTextContent(label)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading exhibitions…')
     const geometry = container.querySelector('.loading-geometry--exhibition-grid')
     expect(geometry).toHaveClass('exhibition-grid')
     expect(geometry).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('reserves the compact curator management list on /exhibitions', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
+    const { container } = renderAt('/exhibitions')
+
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading your exhibitions…')
+    const geometry = container.querySelector('.loading-geometry--curator-list')
+    expect(geometry).toHaveClass('curator-exhibition-list')
+    expect(geometry).toHaveAttribute('aria-hidden', 'true')
+    expect(geometry?.querySelectorAll('.loading-curator-row')).toHaveLength(2)
   })
 
   it.each([

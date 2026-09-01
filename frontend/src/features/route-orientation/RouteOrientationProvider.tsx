@@ -190,9 +190,13 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
     }
     if (intent.completed) return
 
-    const target = focusOwner === 'gallery'
+    const waitsForLoadedLayoutTarget = focusOwner === 'layout'
+      && currentRoute.exhibitionId !== null
+      && (currentRoute.metadata?.id === 'metadata' || currentRoute.metadata?.id === 'artworks')
+      && currentRegistration?.announcement !== null
+    const target = focusOwner === 'gallery' || waitsForLoadedLayoutTarget
       ? registeredFocusTarget
-      : layoutFocusTarget()
+      : registeredFocusTarget ?? layoutFocusTarget()
     const cancelWhenFocusMoves = (event: FocusEvent) => {
       if (focusIntentRef.current === intent && event.target !== intent.origin) {
         intent.completed = true
@@ -226,7 +230,7 @@ export function RouteOrientationProvider({ children }: { children: React.ReactNo
       window.clearTimeout(timeout)
       document.removeEventListener('focusin', cancelWhenFocusMoves)
     }
-  }, [activeSession, focusOwner, focusRequested, registeredFocusTarget])
+  }, [activeSession, currentRegistration?.announcement, currentRoute.exhibitionId, currentRoute.metadata?.id, focusOwner, focusRequested, registeredFocusTarget])
 
   return (
     <RouteTitleRegistryContext.Provider value={registry}>

@@ -19,6 +19,7 @@ import {
   CuratorExhibitionContext,
   CuratorNextStep,
 } from '../features/exhibitions/CuratorExhibitionContext'
+import { CuratorPageHeading } from '../features/exhibitions/CuratorPageHeading'
 import { useDirtyNavigation } from '../features/exhibitions/useDirtyNavigation'
 import type { MetadataFieldErrors } from '../features/exhibitions/metadataValidation'
 import { useExhibition } from '../features/exhibitions/useExhibition'
@@ -216,72 +217,109 @@ function ExhibitionEditor({ exhibitionId }: { exhibitionId: number }) {
 
   return (
     <section className="editor-page">
-      <div className="page-heading editor-heading">
-        <p className="eyebrow">Curator workspace</p>
-        <h1>Edit exhibition</h1>
-        <p className="lede">Refine the exhibition story before selecting its artworks.</p>
-      </div>
+      <CuratorPageHeading
+        title={currentExhibition.title}
+        step="Metadata"
+        description={currentExhibition.status === 'PUBLISHED'
+          ? 'Review the committed exhibition text or return to preview to make it editable.'
+          : 'Refine the exhibition story before selecting its artworks.'}
+      />
       <CuratorExhibitionContext exhibition={currentExhibition} activeStep="metadata" />
-      {showCreatedNextStep && (
-        <CuratorNextStep
-          message="Exhibition created."
-          to={`/exhibitions/${currentExhibition.id}/artworks`}
-          label="Continue to artworks"
-        />
-      )}
-      <section ref={authoringRegionRef} className="editor-section" aria-labelledby="metadata-heading">
-        <h2 id="metadata-heading">Exhibition metadata</h2>
-        <AuthoritativeReconciliationNotice
-          phase={reconciliationPhase}
-          onRetry={reconcilePublishedConflict}
-          initialFocusOriginRef={reconciliationFocusOrigin}
-        />
-        {isReadOnly && (
-          <p className="form-alert" role="status">
-            This exhibition is published and read-only. Unpublish it before changing metadata or deleting it.
-          </p>
-        )}
-        <RequestError error={error} />
-        {successMessage && (
-          <CuratorNextStep
-            message={successMessage}
-            to={`/exhibitions/${currentExhibition.id}/artworks`}
-            label="Continue to artworks"
+      {currentExhibition.status === 'PUBLISHED' ? (
+        <section ref={authoringRegionRef} className="editor-section published-metadata" aria-labelledby="published-metadata-heading">
+          <h2 id="published-metadata-heading">Published metadata</h2>
+          <AuthoritativeReconciliationNotice
+            phase={reconciliationPhase}
+            onRetry={reconcilePublishedConflict}
+            initialFocusOriginRef={reconciliationFocusOrigin}
           />
-        )}
-        <ExhibitionMetadataForm
-          metadata={formMetadata}
-          fieldErrors={fieldErrors}
-          submitting={busy}
-          readOnly={isReadOnly}
-          submitLabel="Save metadata"
-          onChange={change}
-          onSubmit={save}
-          onClientValidationFailure={setFieldErrors}
-        />
-      </section>
-      {!isReadOnly && (
-        <section className="editor-section delete-section" aria-labelledby="delete-heading">
-          <h2 id="delete-heading">Delete draft</h2>
-          <p>Deleting a draft permanently removes its metadata and curated artworks.</p>
-          {!confirmingDelete ? (
-            <button ref={deleteButtonRef} className="button button-danger" type="button" disabled={busy} onClick={() => setConfirmingDelete(true)}>
-              Delete exhibition
-            </button>
-          ) : (
-            <InlineDestructiveConfirmation
-              className="delete-confirmation"
-              name={`Delete draft exhibition: ${currentExhibition.title}?`}
-              description="Delete this draft exhibition? This cannot be undone."
-              confirmLabel="Confirm deletion"
-              pendingLabel="Deleting…"
-              cancelLabel="Keep exhibition"
-              pending={deleting}
-              onConfirm={deleteExhibition}
-              onCancel={cancelDeletion}
+          <p className="published-metadata__explanation">
+            This exhibition is published and read-only. Return to preview and unpublish it before editing its metadata.
+          </p>
+          {(currentExhibition.summary || currentExhibition.introduction) && (
+            <div className="published-metadata__copy">
+              {currentExhibition.summary && (
+                <section aria-labelledby="published-summary-heading">
+                  <h3 id="published-summary-heading">Summary</h3>
+                  <p>{currentExhibition.summary}</p>
+                </section>
+              )}
+              {currentExhibition.introduction && (
+                <section aria-labelledby="published-introduction-heading">
+                  <h3 id="published-introduction-heading">Introduction</h3>
+                  <p>{currentExhibition.introduction}</p>
+                </section>
+              )}
+            </div>
+          )}
+          <Link className="button button-secondary published-metadata__preview" to={`/exhibitions/${currentExhibition.id}/preview`}>
+            Preview and unpublish to edit
+          </Link>
+        </section>
+      ) : (
+        <>
+          {showCreatedNextStep && (
+            <CuratorNextStep
+              message="Exhibition created."
+              to={`/exhibitions/${currentExhibition.id}/artworks`}
+              label="Continue to artworks"
             />
           )}
-        </section>
+          <section ref={authoringRegionRef} className="editor-section" aria-labelledby="metadata-heading">
+            <h2 id="metadata-heading">Exhibition metadata</h2>
+            <AuthoritativeReconciliationNotice
+              phase={reconciliationPhase}
+              onRetry={reconcilePublishedConflict}
+              initialFocusOriginRef={reconciliationFocusOrigin}
+            />
+            {isReadOnly && (
+              <p className="form-alert" role="status">
+                This exhibition is published and read-only. Unpublish it before changing metadata or deleting it.
+              </p>
+            )}
+            <RequestError error={error} />
+            {successMessage && (
+              <CuratorNextStep
+                message={successMessage}
+                to={`/exhibitions/${currentExhibition.id}/artworks`}
+                label="Continue to artworks"
+              />
+            )}
+            <ExhibitionMetadataForm
+              metadata={formMetadata}
+              fieldErrors={fieldErrors}
+              submitting={busy}
+              readOnly={isReadOnly}
+              submitLabel="Save metadata"
+              onChange={change}
+              onSubmit={save}
+              onClientValidationFailure={setFieldErrors}
+            />
+          </section>
+          {!isReadOnly && (
+            <section className="editor-section delete-section" aria-labelledby="delete-heading">
+              <h2 id="delete-heading">Delete draft</h2>
+              <p>Deleting a draft permanently removes its metadata and curated artworks.</p>
+              {!confirmingDelete ? (
+                <button ref={deleteButtonRef} className="button button-danger" type="button" disabled={busy} onClick={() => setConfirmingDelete(true)}>
+                  Delete exhibition
+                </button>
+              ) : (
+                <InlineDestructiveConfirmation
+                  className="delete-confirmation"
+                  name={`Delete draft exhibition: ${currentExhibition.title}?`}
+                  description="Delete this draft exhibition? This cannot be undone."
+                  confirmLabel="Confirm deletion"
+                  pendingLabel="Deleting…"
+                  cancelLabel="Keep exhibition"
+                  pending={deleting}
+                  onConfirm={deleteExhibition}
+                  onCancel={cancelDeletion}
+                />
+              )}
+            </section>
+          )}
+        </>
       )}
       <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>

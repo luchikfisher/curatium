@@ -7,6 +7,7 @@ import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibitionContext'
+import { CuratorPageHeading } from '../features/exhibitions/CuratorPageHeading'
 import { readArtworkSearchReturnTarget } from '../features/exhibitions/artworkSearchNavigation'
 import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
 import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
@@ -26,7 +27,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const { data: exhibition, error, retry, replace } = useExhibition(exhibitionId, getExhibition)
   const mutationController = useRef<AbortController | null>(null)
   const mutationInFlight = useRef(false)
-  const previewStatusRef = useRef<HTMLParagraphElement | null>(null)
+  const previewStatusRef = useRef<HTMLSpanElement | null>(null)
   const authoritativeRefreshFocusPending = useRef(false)
   const [publicationMutation, setPublicationMutation] = useState<'publish' | 'unpublish' | null>(null)
   const [publicationError, setPublicationError] = useState<Error | null>(null)
@@ -139,18 +140,17 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
 
   return (
     <section className="exhibition-preview">
-      <div className="preview-heading">
-        <p className="eyebrow">Curator preview</p>
-        <p ref={previewStatusRef} className={`preview-status preview-status--${exhibition.status.toLowerCase()}`} role="status" tabIndex={-1}>
-          {isPublished ? 'Published exhibition' : 'Draft preview'}
-        </p>
-        <h1>{exhibition.title}</h1>
-        {exhibition.summary ? <p className="lede">{exhibition.summary}</p> : <p className="lede preview-empty-copy">No summary has been provided.</p>}
-      </div>
+      <CuratorPageHeading
+        title={exhibition.title}
+        step="Preview & publish"
+        description={exhibition.summary || 'No summary has been provided.'}
+        focusTarget={false}
+      />
       <CuratorExhibitionContext
         exhibition={exhibition}
         activeStep="preview"
         artworksDestination={artworksDestination}
+        statusRef={previewStatusRef}
       />
       <LazyExhibitionGallery
         exhibition={exhibition}

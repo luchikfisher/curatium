@@ -17,6 +17,7 @@ import {
   CuratorExhibitionContext,
   CuratorNextStep,
 } from '../features/exhibitions/CuratorExhibitionContext'
+import { CuratorPageHeading } from '../features/exhibitions/CuratorPageHeading'
 import {
   createArtworkSearchReturnState,
   createArtworkSearchString,
@@ -774,11 +775,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   if (currentExhibition.status === 'PUBLISHED') {
     return (
       <section ref={authoringRegionRef} className="artwork-search-page artwork-review-page">
-        <div className="page-heading editor-heading">
-          <p className="eyebrow">Curator workspace</p>
-          <h1>Review published artworks</h1>
-          <p className="lede">Review the committed artwork sequence for {currentExhibition.title}.</p>
-        </div>
+        <CuratorPageHeading
+          title={currentExhibition.title}
+          step="Artworks"
+          description="Review the committed artwork sequence. Unpublish from preview before making changes."
+        />
         <CuratorExhibitionContext
           exhibition={currentExhibition}
           activeStep="artworks"
@@ -800,11 +801,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   return (
     <section ref={authoringRegionRef} className="artwork-search-page">
-      <div className="page-heading editor-heading">
-        <p className="eyebrow">Museum collection</p>
-        <h1>Add artworks</h1>
-        <p className="lede">Search the collection and add public-domain works to {currentExhibition.title}.</p>
-      </div>
+      <CuratorPageHeading
+        title={currentExhibition.title}
+        step="Artworks"
+        description="Search the collection and shape the committed artwork sequence."
+      />
       <CuratorExhibitionContext
         exhibition={currentExhibition}
         activeStep="artworks"

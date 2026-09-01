@@ -2,6 +2,7 @@ import { isFrontendError } from '../api/errors'
 
 export type LoadingGeometry =
   | 'exhibition-grid'
+  | 'curator-list'
   | 'metadata'
   | 'artworks'
   | 'preview'
@@ -31,6 +32,15 @@ function ReservedLoadingGeometry({ geometry }: { geometry: LoadingGeometry }) {
       <div className="exhibition-grid loading-geometry loading-geometry--exhibition-grid" aria-hidden="true">
         <LoadingCard />
         <LoadingCard />
+      </div>
+    )
+  }
+
+  if (geometry === 'curator-list') {
+    return (
+      <div className="curator-exhibition-list loading-geometry loading-geometry--curator-list" aria-hidden="true">
+        <LoadingCuratorRow />
+        <LoadingCuratorRow />
       </div>
     )
   }
@@ -66,7 +76,21 @@ function LoadingCard() {
   )
 }
 
-function ReservedRouteContent({ geometry }: { geometry: Exclude<LoadingGeometry, 'exhibition-grid'> }) {
+function LoadingCuratorRow() {
+  return (
+    <div className="loading-curator-row">
+      <span className="loading-shape loading-curator-row__media" />
+      <div className="loading-curator-row__body">
+        <span className="loading-shape loading-shape--eyebrow" />
+        <span className="loading-shape loading-shape--card-title" />
+        <span className="loading-shape loading-shape--line loading-shape--line-short" />
+      </div>
+      <span className="loading-shape loading-curator-row__action" />
+    </div>
+  )
+}
+
+function ReservedRouteContent({ geometry }: { geometry: Exclude<LoadingGeometry, 'exhibition-grid' | 'curator-list'> }) {
   if (geometry === 'metadata') {
     return (
       <div className="loading-route-shell__section loading-route-shell__section--form">

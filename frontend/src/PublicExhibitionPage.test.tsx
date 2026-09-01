@@ -141,7 +141,8 @@ describe('public exhibition view', () => {
     await userEvent.click(curatorReturn)
 
     expect(window.location.pathname).toBe('/exhibitions/1/preview')
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    const context = await screen.findByRole('region', { name: 'Current exhibition' })
+    expect(within(context).getByText('Published')).toBeInTheDocument()
   })
 
   it('consumes valid curator state immediately while the public request is still pending', async () => {
@@ -198,7 +199,8 @@ describe('public exhibition view', () => {
     await act(async () => { await appRouter.navigate(-1) })
 
     expect(window.location.pathname).toBe('/exhibitions/1/preview')
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    const context = await screen.findByRole('region', { name: 'Current exhibition' })
+    expect(within(context).getByText('Published')).toBeInTheDocument()
   })
 
   it('does not replay consumed curator return state after leaving and re-entering the public route', async () => {

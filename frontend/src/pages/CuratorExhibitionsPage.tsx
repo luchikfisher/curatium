@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { EmptyState, ErrorState, LoadingState } from '../components/AsyncState'
-import { ExhibitionCard } from '../components/ExhibitionCard'
+import { CuratorExhibitionRow } from '../components/CuratorExhibitionRow'
 import { listCuratorExhibitions } from '../features/exhibitions/api'
 import { useExhibitions } from '../features/exhibitions/useExhibitions'
 
@@ -20,7 +20,7 @@ export function CuratorExhibitionsPage() {
         </Link>
       </section>
       <section className="content-section" aria-label="Your exhibitions">
-        {data === null && !error && <LoadingState label="Loading your exhibitions…" geometry="exhibition-grid" />}
+        {data === null && !error && <LoadingState label="Loading your exhibitions…" geometry="curator-list" />}
         {error && <ErrorState error={error} onRetry={retry} />}
         {data?.length === 0 && (
           <EmptyState title="Begin your first exhibition">
@@ -28,17 +28,17 @@ export function CuratorExhibitionsPage() {
           </EmptyState>
         )}
         {data && data.length > 0 && (
-          <div className="exhibition-grid">
+          <ol className="curator-exhibition-list">
             {data.map((exhibition, index) => (
-              <ExhibitionCard
-                key={exhibition.id}
-                exhibition={exhibition}
-                curator
-                position={index + 1}
-                exhibitionCount={data.length}
-              />
+              <li key={exhibition.id}>
+                <CuratorExhibitionRow
+                  exhibition={exhibition}
+                  position={index + 1}
+                  exhibitionCount={data.length}
+                />
+              </li>
             ))}
-          </div>
+          </ol>
         )}
       </section>
     </>

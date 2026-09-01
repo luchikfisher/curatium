@@ -67,6 +67,16 @@ function artworkSearchReturnState(exhibitionId: number, query = 'landscape', pag
   return { artworkSearchReturn: { exhibitionId, query, page } }
 }
 
+function expectPublishedContext() {
+  expect(within(screen.getByRole('region', { name: 'Current exhibition' })).getByText('Published'))
+    .toBeInTheDocument()
+}
+
+async function findDraftContext() {
+  const context = await screen.findByRole('region', { name: 'Current exhibition' })
+  return within(context).findByText('Draft')
+}
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -79,12 +89,13 @@ describe('curator exhibition preview', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({ items: [second, first], coverArtworkId: first.artwork.id }))))
     renderAt('/exhibitions/1/preview')
 
-    expect(await screen.findByRole('heading', { name: 'Lines of Light' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Lines of Light', level: 1 })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     const context = screen.getByRole('region', { name: 'Current exhibition' })
-    expect(within(context).getByText('Lines of Light')).toBeInTheDocument()
+    expect(within(context).queryByText('Lines of Light')).not.toBeInTheDocument()
     expect(within(context).getByText('Draft')).toBeInTheDocument()
     expect(within(context).getByRole('link', { name: 'Preview & publish' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText('Draft preview')).toBeInTheDocument()
+    expect(await findDraftContext()).toBeInTheDocument()
     expect(screen.getByText('A study of light and form.')).toBeInTheDocument()
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
     expect(screen.getByText('This draft is visible only in the curator workspace.')).toBeInTheDocument()
@@ -118,7 +129,8 @@ describe('curator exhibition preview', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/exhibitions/1/preview')
 
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Lines of Light', level: 1 })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     const context = screen.getByRole('region', { name: 'Current exhibition' })
     expect(within(context).getByText('Published')).toBeInTheDocument()
     expect(within(context).getByRole('link', { name: 'Preview & publish' })).toHaveAttribute('aria-current', 'page')
@@ -245,7 +257,7 @@ describe('curator exhibition preview', () => {
 
     expect(await screen.findByRole('heading', { name: 'Committed published title' })).toBeInTheDocument()
     expect(document.title).toBe('Preview — Committed published title | Curatium')
-    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expectPublishedContext()
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(screen.getByText('Exhibition published. Curatorial editing is now read-only.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View public exhibition' })).toHaveAttribute('href', '/visit/1')
@@ -270,7 +282,7 @@ describe('curator exhibition preview', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('A published exhibition must include at least one artwork.')
     expect(screen.getByRole('list', { name: 'Publication requirements' })).toHaveTextContent('Ready: At least one artwork')
-    expect(screen.getByText('Draft preview')).toBeInTheDocument()
+    expect(await findDraftContext()).toBeInTheDocument()
   })
 
   it('blocks a zero-item draft locally and explains that artwork curation precedes cover selection', async () => {
@@ -411,7 +423,8 @@ describe('curator exhibition preview', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('This exhibition is currently read-only.')
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    await screen.findByRole('region', { name: 'Current exhibition' })
+    expectPublishedContext()
   })
 
   it('opens an accessible unpublish confirmation without sending a mutation', async () => {
@@ -455,7 +468,7 @@ describe('curator exhibition preview', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toHaveFocus()
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expectPublishedContext()
     expect(document.activeElement).not.toBe(document.body)
   })
 
@@ -502,7 +515,7 @@ describe('curator exhibition preview', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
 
-    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(await findDraftContext()).toBeInTheDocument()
     expect(document.title).toBe('Preview — Lines of Light | Curatium')
     expect(screen.queryByText('Published', { selector: 'dt' })).not.toBeInTheDocument()
     expect(screen.getByText('Preserved summary')).toBeInTheDocument()
@@ -545,7 +558,7 @@ describe('curator exhibition preview', () => {
     const pending = screen.getByRole('button', { name: 'Unpublishing…' })
     expect(pending).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
-    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expectPublishedContext()
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View public exhibition' })).toBeInTheDocument()
     await userEvent.click(pending)
@@ -557,7 +570,7 @@ describe('curator exhibition preview', () => {
       items: [first],
       coverArtworkId: first.artwork.id,
     })))
-    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(await findDraftContext()).toBeInTheDocument()
   })
 
   it('preserves published state after unpublish failure and allows retry', async () => {
@@ -579,7 +592,7 @@ describe('curator exhibition preview', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Unpublish is temporarily unavailable.')
-    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expectPublishedContext()
     expect(screen.getByRole('link', { name: 'View public exhibition' })).toHaveAttribute('href', '/visit/1')
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(within(screen.getByRole('navigation', { name: 'Exhibition workflow' })).getByRole('link', { name: 'Metadata' })).toBeInTheDocument()
@@ -589,7 +602,7 @@ describe('curator exhibition preview', () => {
     expect(document.activeElement).not.toBe(document.body)
 
     await userEvent.click(retryUnpublish)
-    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(await findDraftContext()).toBeInTheDocument()
     expect(screen.getByText('Exhibition unpublished. Curatorial editing is available again.')).toHaveFocus()
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
@@ -615,7 +628,7 @@ describe('curator exhibition preview', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toHaveFocus()
-    expect(screen.getByText('Published exhibition')).toBeInTheDocument()
+    expectPublishedContext()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
@@ -640,7 +653,8 @@ describe('curator exhibition preview', () => {
       items: [first],
       coverArtworkId: first.artwork.id,
     })))
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    await screen.findByRole('region', { name: 'Current exhibition' })
+    expectPublishedContext()
   })
 
   it('refreshes a stale draft after the server reports that it is already published', async () => {
@@ -659,7 +673,8 @@ describe('curator exhibition preview', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('The exhibition is already published.')
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    await screen.findByRole('region', { name: 'Current exhibition' })
+    expectPublishedContext()
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
@@ -692,16 +707,17 @@ describe('curator exhibition preview', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Unpublish exhibition' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm unpublish' }))
-    expect(await screen.findByText('Draft preview')).toBeInTheDocument()
+    expect(await findDraftContext()).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publish exhibition' })).toBeInTheDocument()
-    expect(screen.getByText('Draft preview')).toHaveFocus()
+    expect(await findDraftContext()).toHaveFocus()
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/exhibitions/1', expect.any(Object))
 
     await userEvent.click(screen.getByRole('button', { name: 'Publish exhibition' }))
-    expect(await screen.findByText('Published exhibition')).toBeInTheDocument()
+    await screen.findByRole('region', { name: 'Current exhibition' })
+    expectPublishedContext()
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Unpublish exhibition' })).toBeInTheDocument()
 
@@ -864,7 +880,7 @@ describe('curator exhibition preview', () => {
     renderAt('/exhibitions/1/preview')
 
     await screen.findByRole('heading', { name: 'Lines of Light' })
-    expect(screen.getByRole('status')).toHaveTextContent('Draft preview')
+    expect(screen.getByRole('status')).toHaveTextContent('Draft')
     expect(screen.getByRole('list', { name: 'Publication requirements' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publish exhibition' })).toHaveAttribute(
       'aria-describedby',

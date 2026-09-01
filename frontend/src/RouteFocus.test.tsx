@@ -216,7 +216,8 @@ describe('semantic route focus', () => {
 
     await act(async () => router.navigate('/pending-gallery/2'))
     await screen.findByText('Exhibition 2 is loading.')
-    const currentRegistry = capturedRegistries[1]
+    await waitFor(() => expect(capturedRegistries.length).toBeGreaterThanOrEqual(2))
+    const currentRegistry = capturedRegistries.at(-1)!
     const sharedOwner = Symbol('shared-gallery-target-owner')
     const currentTarget = document.createElement('div')
     currentTarget.tabIndex = -1
@@ -280,9 +281,9 @@ function createFocusRouter(
           path: '/exhibitions/:id/artworks',
           handle: { orientation: routeOrientationMetadata.artworks },
           element: (
-            <TestPage heading="Curate artworks">
+            <LayoutFocusTestPage heading="Curate artworks">
               <Link to="/exhibitions/1/preview">Preview &amp; publish</Link>
-            </TestPage>
+            </LayoutFocusTestPage>
           ),
         },
         {
@@ -335,11 +336,25 @@ function TestPage({ heading, children }: { heading: string; children?: React.Rea
   )
 }
 
+function LayoutFocusTestPage({ heading, children }: { heading: string; children?: React.ReactNode }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useRouteFocusTarget(headingRef)
+  return (
+    <section>
+      <h1 ref={headingRef}>{heading}</h1>
+      {children}
+    </section>
+  )
+}
+
 function MetadataTestPage() {
   const [note, setNote] = useState('')
   const navigation = useDirtyNavigation(note !== '')
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useRouteFocusTarget(headingRef)
   return (
-    <TestPage heading="Edit exhibition">
+    <section>
+      <h1 ref={headingRef}>Edit exhibition</h1>
       <Link to="/exhibitions/1/artworks">Artworks</Link>
       <button type="button">Keep focus</button>
       <label>
@@ -347,7 +362,7 @@ function MetadataTestPage() {
         <input value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
       <DirtyNavigationConfirmation navigation={navigation} />
-    </TestPage>
+    </section>
   )
 }
 
