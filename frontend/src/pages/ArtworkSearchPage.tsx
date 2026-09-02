@@ -47,6 +47,7 @@ const SEARCH_PAGE_SIZE = 20
 const MAXIMUM_CURATORIAL_NOTE_LENGTH = 2000
 
 type ItemMutationKind = 'note' | 'move-up' | 'move-down' | 'remove'
+type ArtworkWorkspaceMode = 'sequence' | 'search'
 
 type CoverMutation =
   | { kind: 'select'; itemId: number }
@@ -96,6 +97,13 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const [coverSuccess, setCoverSuccess] = useState('')
   const [liveMutationFeedback, setLiveMutationFeedback] = useState<'cover' | 'item' | null>(null)
   const [removingItemId, setRemovingItemId] = useState<number | null>(null)
+  const [workspaceModeChoice, setWorkspaceModeChoice] = useState<ArtworkWorkspaceMode | null>(null)
+  const [activeItemId, setActiveItemId] = useState<number | null | undefined>(undefined)
+  const [importFeedback, setImportFeedback] = useState<{
+    title: string
+    itemId: number
+    artworkCount: number
+  } | null>(null)
   const [exhibitionNotFound, setExhibitionNotFound] = useState(false)
   const [reconciliationPhase, setReconciliationPhase] = useState<AuthoritativeReconciliationPhase>('idle')
   const searchController = useRef<AbortController | null>(null)
@@ -312,6 +320,11 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
   const coverItem = currentExhibition.coverArtworkId === null
     ? null
     : currentExhibition.items.find((item) => item.artwork.id === currentExhibition.coverArtworkId) ?? null
+  const workspaceMode = workspaceModeChoice
+    ?? (currentExhibition.items.length === 0 ? 'search' : 'sequence')
+  const resolvedActiveItemId = activeItemId === undefined
+    ? currentExhibition.items[0]?.id ?? null
+    : activeItemId
 
   function replaceExhibition(nextExhibition: ExhibitionDetail) {
     if (nextExhibition.coverArtworkId !== currentExhibition.coverArtworkId) {
@@ -326,6 +339,9 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
       return Object.keys(retained).length === Object.keys(current).length ? current : retained
     })
     setNoteValidationFeedback((current) => current && retainedItemIds.has(current.itemId) ? current : null)
+    setActiveItemId((current) => (
+      current !== null && current !== undefined && !retainedItemIds.has(current) ? null : current
+    ))
     replace(nextExhibition)
   }
 
@@ -356,6 +372,8 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     setCoverSuccess('')
     setLiveMutationFeedback(null)
     setRemovingItemId(null)
+    setActiveItemId(null)
+    setImportFeedback(null)
     restoreRemovalFocus.current = null
   }
 
@@ -439,7 +457,14 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     try {
       const addedItem = await addExhibitionArtwork(currentExhibition.id, artwork, controller.signal)
       if (isCurrentAddRequest(controller)) {
-        replaceExhibition(withAddedItem(currentExhibition, addedItem))
+        const nextExhibition = withAddedItem(currentExhibition, addedItem)
+        replaceExhibition(nextExhibition)
+        setWorkspaceModeChoice('search')
+        setImportFeedback({
+          title: addedItem.artwork.title,
+          itemId: addedItem.id,
+          artworkCount: nextExhibition.items.length,
+        })
       }
     } catch (reason) {
       if (isCurrentAddRequest(controller)) {
@@ -666,6 +691,8 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
 
   async function saveNote(item: ExhibitionItem, value = noteValue(item)) {
     if (value.length > MAXIMUM_CURATORIAL_NOTE_LENGTH) {
+      setWorkspaceModeChoice('sequence')
+      setActiveItemId(item.id)
       setItemSuccess('')
       setLiveMutationFeedback(null)
       setNoteErrors((current) => ({
@@ -772,6 +799,15 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
     }
   }
 
+  function selectWorkspace(mode: ArtworkWorkspaceMode) {
+    setWorkspaceModeChoice(mode)
+  }
+
+  function reviewImportedArtwork() {
+    setWorkspaceModeChoice('sequence')
+    setActiveItemId(importFeedback?.itemId ?? null)
+  }
+
   if (currentExhibition.status === 'PUBLISHED') {
     return (
       <section ref={authoringRegionRef} className="artwork-search-page artwork-review-page">
@@ -817,146 +853,179 @@ function ArtworkSearchEditor({ exhibitionId }: { exhibitionId: number }) {
         onRetry={reconcilePublishedConflict}
         initialFocusOriginRef={reconciliationFocusOrigin}
       />
-      <section className="artwork-search-section cover-selection" aria-labelledby="cover-heading">
-        <h2 id="cover-heading">Cover artwork</h2>
-        {coverItem ? (
-          <div className="cover-selection__current">
-            <ArtworkImage
-              src={coverItem.artwork.thumbnailUrl}
-              visualRole="thumbnail"
-              alt={`Current cover: ${coverItem.artwork.title}`}
-              className="cover-selection__image"
-            />
+      <div className="artwork-workspace-switcher">
+        <nav aria-label="Artwork workspace" className="artwork-workspace-switcher__tabs">
+          <button
+            className="artwork-workspace-switcher__tab"
+            type="button"
+            aria-pressed={workspaceMode === 'sequence'}
+            onClick={() => selectWorkspace('sequence')}
+          >
+            Exhibition sequence <span>{currentExhibition.items.length}</span>
+          </button>
+          <button
+            className="artwork-workspace-switcher__tab"
+            type="button"
+            aria-pressed={workspaceMode === 'search'}
+            onClick={() => selectWorkspace('search')}
+          >
+            Museum search
+          </button>
+        </nav>
+        <p>{workspaceMode === 'sequence' ? 'Shape order, cover, and interpretation.' : 'Discover and add public-domain artworks.'}</p>
+      </div>
+
+      {itemError && <p className="form-alert" role="alert">{itemError}</p>}
+      {itemSuccess && (
+        <p
+          className="form-success"
+          role={liveMutationFeedback === 'item' ? 'status' : undefined}
+          aria-live={liveMutationFeedback === 'item' ? 'polite' : undefined}
+          aria-atomic={liveMutationFeedback === 'item' ? 'true' : undefined}
+        >
+          {itemSuccess}
+        </p>
+      )}
+
+      {workspaceMode === 'sequence' ? (
+        <section
+          id="artwork-workspace-sequence"
+          className="artwork-workspace artwork-workspace--sequence"
+        >
+          <div className="artwork-workspace__heading">
             <div>
-              <p className="cover-selection__status">Current cover</p>
-              <p>{coverItem.artwork.title}</p>
-              <button
-                aria-label={`Clear cover, artwork ${coverItem.position} of ${currentExhibition.items.length}, ${coverItem.artwork.title}`}
-                className="button button-secondary"
-                type="button"
-                disabled={authoringLocked || coverMutationInProgress || itemMutationInProgress || addingExternalId !== null}
-                onClick={clearCover}
-              >
-                {coverMutation?.kind === 'clear' ? 'Clearing…' : 'Clear cover'}
+              <p className="eyebrow">Composition</p>
+              <h2>Exhibition sequence</h2>
+            </div>
+            <p className="sequence-overview">
+              {currentExhibition.items.length}/10 artworks
+              <span>{coverItem ? `Cover: ${coverItem.artwork.title}` : 'Cover not selected'}</span>
+            </p>
+          </div>
+          {coverError && <p className="form-alert" role="alert">{coverError}</p>}
+          {coverSuccess === 'Cover updated.' ? (
+            <CuratorNextStep
+              message={coverSuccess}
+              to={`/exhibitions/${currentExhibition.id}/preview`}
+              label="Continue to preview & publish"
+              state={previewReturnState}
+              announce={liveMutationFeedback === 'cover'}
+            />
+          ) : coverSuccess ? (
+            <p
+              className="form-success"
+              role={liveMutationFeedback === 'cover' ? 'status' : undefined}
+              aria-live={liveMutationFeedback === 'cover' ? 'polite' : undefined}
+              aria-atomic={liveMutationFeedback === 'cover' ? 'true' : undefined}
+            >
+              {coverSuccess}
+            </p>
+          ) : null}
+          {currentExhibition.items.length === 0 ? (
+            <div className="workspace-empty-state">
+              <p>No artworks have been added yet. Start with the museum collection.</p>
+              <button className="button" type="button" onClick={() => selectWorkspace('search')}>Search the collection</button>
+            </div>
+          ) : (
+            <ol className="current-artwork-list current-artwork-list--curation" aria-label="Exhibition sequence">
+              {currentExhibition.items.map((item) => (
+                <CurrentArtworkItem
+                  key={item.id}
+                  item={item}
+                  itemCount={currentExhibition.items.length}
+                  note={noteValue(item)}
+                  noteError={noteErrors[item.id]}
+                  noteValidationFeedback={noteValidationFeedback?.itemId === item.id ? noteValidationFeedback : null}
+                  isActive={resolvedActiveItemId === item.id}
+                  isReadOnly={authoringLocked}
+                  isBusy={itemMutationInProgress}
+                  coverMutation={coverMutation}
+                  hasCurrentCover={coverItem !== null}
+                  isCurrentCover={item.artwork.id === currentExhibition.coverArtworkId}
+                  activeMutationKind={itemMutation?.itemId === item.id ? itemMutation.kind : null}
+                  isConfirmingRemoval={removingItemId === item.id}
+                  onActivate={() => setActiveItemId(item.id)}
+                  onDeactivate={() => setActiveItemId(null)}
+                  onNoteChange={changeNote}
+                  onSaveNote={saveNote}
+                  onMove={moveItem}
+                  onSelectCover={selectCover}
+                  onClearCover={clearCover}
+                  onRequestRemoval={requestRemoval}
+                  onRemove={removeItem}
+                  onCancelRemoval={cancelRemoval}
+                  removeButtonRef={(button) => {
+                    if (button) removeButtonRefs.current.set(item.id, button)
+                    else removeButtonRefs.current.delete(item.id)
+                  }}
+                />
+              ))}
+            </ol>
+          )}
+        </section>
+      ) : (
+        <section
+          id="artwork-workspace-search"
+          className="artwork-workspace artwork-workspace--search"
+        >
+          <div className="artwork-workspace__heading">
+            <div>
+              <p className="eyebrow">Discovery</p>
+              <h2>Museum search</h2>
+            </div>
+            {currentExhibition.items.length > 0 && (
+              <button className="button button-secondary" type="button" onClick={() => selectWorkspace('sequence')}>
+                Review exhibition sequence ({currentExhibition.items.length})
+              </button>
+            )}
+          </div>
+          {importFeedback && (
+            <div className="workspace-import-feedback" role="status" aria-live="polite" aria-atomic="true">
+              <p><strong>{importFeedback.title}</strong> was added. The exhibition now has {importFeedback.artworkCount} {importFeedback.artworkCount === 1 ? 'artwork' : 'artworks'}.</p>
+              <button className="text-link" type="button" onClick={reviewImportedArtwork}>Review exhibition sequence</button>
+            </div>
+          )}
+          {atCapacity && <p className="form-alert" role="status">This exhibition has reached its 10-artwork limit.</p>}
+          {addError && <p className="form-alert" role="alert">{addError}</p>}
+          <form className="museum-search-form" onSubmit={submitSearch} noValidate aria-busy={searching}>
+            <label htmlFor="museum-query">Search terms</label>
+            <div className="museum-search-form__controls">
+              <input
+                ref={queryInputRef}
+                id="museum-query"
+                name="q"
+                type="search"
+                value={query}
+                onChange={(event) => changeQuery(event.target.value)}
+                aria-invalid={Boolean(queryError)}
+                aria-describedby={queryError ? 'museum-query-error' : undefined}
+              />
+              <button className="button" type="submit">
+                {searching ? 'Searching…' : 'Search'}
               </button>
             </div>
-          </div>
-        ) : (
-          <p className="section-copy">No cover selected. Choose an artwork below to use as the exhibition cover.</p>
-        )}
-        {coverError && <p className="form-alert" role="alert">{coverError}</p>}
-        {coverSuccess === 'Cover updated.' ? (
-          <CuratorNextStep
-            message={coverSuccess}
-            to={`/exhibitions/${currentExhibition.id}/preview`}
-            label="Continue to preview & publish"
-            state={previewReturnState}
-            announce={liveMutationFeedback === 'cover'}
+            {queryError && <p className="field-error" id="museum-query-error">{queryError}</p>}
+            <ValidationSummary feedback={queryValidationFeedback} />
+          </form>
+          {searchError && <SearchError error={searchError} onRetry={retrySearch} />}
+          <SearchContent
+            results={visibleResults}
+            activeQuery={visibleResults ? activeQuery : ''}
+            searching={searching}
+            onPageChange={startSearch}
+            onAdd={addArtwork}
+            isReadOnly={authoringLocked}
+            atCapacity={atCapacity}
+            addingExternalId={addingExternalId}
+            itemMutationInProgress={itemMutationInProgress}
+            coverMutationInProgress={coverMutationInProgress}
+            isAlreadyAdded={(artwork) => {
+              const key = artworkKey(artwork)
+              return committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)
+            }}
           />
-        ) : coverSuccess ? (
-          <p
-            className="form-success"
-            role={liveMutationFeedback === 'cover' ? 'status' : undefined}
-            aria-live={liveMutationFeedback === 'cover' ? 'polite' : undefined}
-            aria-atomic={liveMutationFeedback === 'cover' ? 'true' : undefined}
-          >
-            {coverSuccess}
-          </p>
-        ) : null}
-      </section>
-      <section className="artwork-search-section" aria-labelledby="current-artworks-heading">
-        <h2 id="current-artworks-heading">Current artworks ({currentExhibition.items.length}/10)</h2>
-        {isReadOnly && <p className="form-alert" role="status">This exhibition is published and read-only.</p>}
-        {itemError && <p className="form-alert" role="alert">{itemError}</p>}
-        {itemSuccess && (
-          <p
-            className="form-success"
-            role={liveMutationFeedback === 'item' ? 'status' : undefined}
-            aria-live={liveMutationFeedback === 'item' ? 'polite' : undefined}
-            aria-atomic={liveMutationFeedback === 'item' ? 'true' : undefined}
-          >
-            {itemSuccess}
-          </p>
-        )}
-        {currentExhibition.items.length === 0 ? (
-          <p className="section-copy">No artworks have been added yet.</p>
-        ) : (
-          <ol className="current-artwork-list current-artwork-list--curation">
-            {currentExhibition.items.map((item) => (
-              <CurrentArtworkItem
-                key={item.id}
-                item={item}
-                itemCount={currentExhibition.items.length}
-                note={noteValue(item)}
-                noteError={noteErrors[item.id]}
-                noteValidationFeedback={noteValidationFeedback?.itemId === item.id ? noteValidationFeedback : null}
-                isReadOnly={authoringLocked}
-                isBusy={itemMutationInProgress}
-                coverMutation={coverMutation}
-                hasCurrentCover={coverItem !== null}
-                isCurrentCover={item.artwork.id === currentExhibition.coverArtworkId}
-                activeMutationKind={
-                  itemMutation?.itemId === item.id ? itemMutation.kind : null
-                }
-                isConfirmingRemoval={removingItemId === item.id}
-                onNoteChange={changeNote}
-                onSaveNote={saveNote}
-                onMove={moveItem}
-                onSelectCover={selectCover}
-                onRequestRemoval={requestRemoval}
-                onRemove={removeItem}
-                onCancelRemoval={cancelRemoval}
-                removeButtonRef={(button) => {
-                  if (button) removeButtonRefs.current.set(item.id, button)
-                  else removeButtonRefs.current.delete(item.id)
-                }}
-              />
-            ))}
-          </ol>
-        )}
-      </section>
-      <section className="artwork-search-section" aria-labelledby="museum-search-heading">
-        <h2 id="museum-search-heading">Search museum collection</h2>
-        {atCapacity && <p className="form-alert" role="status">This exhibition has reached its 10-artwork limit.</p>}
-        {addError && <p className="form-alert" role="alert">{addError}</p>}
-        <form className="museum-search-form" onSubmit={submitSearch} noValidate aria-busy={searching}>
-          <label htmlFor="museum-query">Search terms</label>
-          <div className="museum-search-form__controls">
-            <input
-              ref={queryInputRef}
-              id="museum-query"
-              name="q"
-              type="search"
-              value={query}
-              onChange={(event) => changeQuery(event.target.value)}
-              aria-invalid={Boolean(queryError)}
-              aria-describedby={queryError ? 'museum-query-error' : undefined}
-            />
-            <button className="button" type="submit">
-              {searching ? 'Searching…' : 'Search'}
-            </button>
-          </div>
-          {queryError && <p className="field-error" id="museum-query-error">{queryError}</p>}
-          <ValidationSummary feedback={queryValidationFeedback} />
-        </form>
-        {searchError && <SearchError error={searchError} onRetry={retrySearch} />}
-        <SearchContent
-          results={visibleResults}
-          activeQuery={visibleResults ? activeQuery : ''}
-          searching={searching}
-          onPageChange={startSearch}
-          onAdd={addArtwork}
-          isReadOnly={authoringLocked}
-          atCapacity={atCapacity}
-          addingExternalId={addingExternalId}
-          itemMutationInProgress={itemMutationInProgress}
-          coverMutationInProgress={coverMutationInProgress}
-          isAlreadyAdded={(artwork) => {
-            const key = artworkKey(artwork)
-            return committedArtworkKeys.has(key) || duplicateArtworkKeys.has(key)
-          }}
-        />
-      </section>
+        </section>
+      )}
       <DirtyNavigationConfirmation navigation={dirtyNavigation} />
     </section>
   )
@@ -1063,6 +1132,7 @@ function CurrentArtworkItem({
   note,
   noteError,
   noteValidationFeedback,
+  isActive,
   isReadOnly,
   isBusy,
   coverMutation,
@@ -1070,10 +1140,13 @@ function CurrentArtworkItem({
   isCurrentCover,
   activeMutationKind,
   isConfirmingRemoval,
+  onActivate,
+  onDeactivate,
   onNoteChange,
   onSaveNote,
   onMove,
   onSelectCover,
+  onClearCover,
   onRequestRemoval,
   onRemove,
   onCancelRemoval,
@@ -1084,6 +1157,7 @@ function CurrentArtworkItem({
   note: string
   noteError?: string
   noteValidationFeedback: ValidationFeedback | null
+  isActive: boolean
   isReadOnly: boolean
   isBusy: boolean
   coverMutation: CoverMutation | null
@@ -1091,10 +1165,13 @@ function CurrentArtworkItem({
   isCurrentCover: boolean
   activeMutationKind: ItemMutationKind | null
   isConfirmingRemoval: boolean
+  onActivate: () => void
+  onDeactivate: () => void
   onNoteChange: (itemId: number, value: string) => void
   onSaveNote: (item: ExhibitionItem, value?: string) => void
   onMove: (item: ExhibitionItem, direction: 'up' | 'down') => void
   onSelectCover: (item: ExhibitionItem) => void
+  onClearCover: () => void
   onRequestRemoval: (itemId: number) => void
   onRemove: (item: ExhibitionItem) => void
   onCancelRemoval: () => void
@@ -1110,6 +1187,8 @@ function CurrentArtworkItem({
   const canClearNote = note.length > 0 || item.curatorialNote !== null
   const artworkDescriptor = `artwork ${item.position} of ${itemCount}, ${item.artwork.title}`
   const isSettingCover = coverMutation?.kind === 'select' && coverMutation.itemId === item.id
+  const editorId = `artwork-item-${item.id}-editor`
+  const hasNote = note.trim().length > 0
 
   function submitNote(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1117,7 +1196,7 @@ function CurrentArtworkItem({
   }
 
   return (
-    <li className="current-artwork-item">
+    <li className={`current-artwork-item${isActive ? ' current-artwork-item--active' : ''}`}>
       <article aria-labelledby={`artwork-item-${item.id}-title`}>
         <div className="current-artwork-item__summary">
           <ArtworkImage
@@ -1126,78 +1205,109 @@ function CurrentArtworkItem({
             alt={`Thumbnail of ${item.artwork.title}`}
             className="current-artwork-item__image"
           />
-          <div>
+          <div className="current-artwork-item__identity">
             <p className="current-artwork-item__position">Artwork {item.position} of {itemCount}</p>
             <h3 id={`artwork-item-${item.id}-title`}>{item.artwork.title}</h3>
             <p>{item.artwork.artistDisplay || 'Artist unknown'}</p>
+            {item.artwork.dateDisplay && <p>{item.artwork.dateDisplay}</p>}
+            <div className="current-artwork-item__markers" aria-label={`Status for ${artworkDescriptor}`}>
+              {isCurrentCover && <span>Cover</span>}
+              <span>{hasNote ? 'Note added' : 'No note'}</span>
+            </div>
           </div>
-        </div>
-        <form className="curatorial-note-form" onSubmit={submitNote} aria-busy={isSaving}>
-          <label htmlFor={noteId}>Curatorial note for artwork {item.position} of {itemCount}: {item.artwork.title}</label>
-          <textarea
-            id={noteId}
-            value={note}
-            onChange={(event) => onNoteChange(item.id, event.target.value)}
-            maxLength={MAXIMUM_CURATORIAL_NOTE_LENGTH + 1}
+          <button
+            className="button button-secondary current-artwork-item__edit"
+            type="button"
+            aria-expanded={isActive}
+            aria-controls={editorId}
+            aria-label={`${isActive ? 'Close editor for' : 'Edit note and actions for'} ${artworkDescriptor}`}
             disabled={disabled}
-            aria-invalid={Boolean(noteError)}
-            aria-describedby={noteError ? noteErrorId : undefined}
-          />
-          {noteError && <p className="field-error" id={noteErrorId}>{noteError}</p>}
-          <ValidationSummary feedback={noteValidationFeedback} />
-          <div className="current-artwork-item__actions">
-            <button aria-label={isSaving ? `Saving note for ${artworkDescriptor}` : `Save note for ${artworkDescriptor}`} className="button button-secondary" type="submit" disabled={disabled}>
-              {isSaving ? 'Saving…' : 'Save note'}
-            </button>
-            <button aria-label={`Clear note for ${artworkDescriptor}`} className="button button-secondary" type="button" disabled={disabled || !canClearNote} onClick={() => onSaveNote(item, '')}>
-              Clear note
-            </button>
-          </div>
-        </form>
-        <div className="current-artwork-item__actions">
-          {isCurrentCover ? (
-            <p className="current-artwork-item__cover">Current cover</p>
-          ) : (
-            <button
-              aria-label={isSettingCover
-                ? `Setting cover to ${artworkDescriptor}`
-                : hasCurrentCover
-                  ? `Replace cover with ${artworkDescriptor}`
-                  : `Set ${artworkDescriptor} as cover`}
-              className="button button-secondary"
-              type="button"
-              disabled={disabled}
-              onClick={() => onSelectCover(item)}
-            >
-              {isSettingCover ? 'Setting cover…' : hasCurrentCover ? 'Replace cover' : 'Set as cover'}
-            </button>
-          )}
-          <button aria-label={isMovingUp ? `Moving ${artworkDescriptor} up` : `Move ${artworkDescriptor} up`} className="button button-secondary" type="button" disabled={disabled || item.position === 1} onClick={() => onMove(item, 'up')}>
-            {isMovingUp ? 'Moving…' : 'Move up'}
+            onClick={isActive ? onDeactivate : onActivate}
+          >
+            {isActive ? 'Done' : 'Edit'}
           </button>
-          <button aria-label={isMovingDown ? `Moving ${artworkDescriptor} down` : `Move ${artworkDescriptor} down`} className="button button-secondary" type="button" disabled={disabled || item.position === itemCount} onClick={() => onMove(item, 'down')}>
-            {isMovingDown ? 'Moving…' : 'Move down'}
-          </button>
-          {!isConfirmingRemoval ? (
-            <button aria-label={`Remove ${artworkDescriptor} from exhibition`} ref={removeButtonRef} className="button button-danger" type="button" disabled={disabled} onClick={() => onRequestRemoval(item.id)}>
-              Remove artwork
-            </button>
-          ) : (
-            <InlineDestructiveConfirmation
-              className="item-removal-confirmation"
-              name={`Remove ${artworkDescriptor}?`}
-              description={`Remove ${item.artwork.title} from this exhibition? This cannot be undone.`}
-              confirmLabel="Confirm removal"
-              pendingLabel="Removing…"
-              cancelLabel="Keep artwork"
-              confirmAccessibleName={isRemoving ? `Removing ${artworkDescriptor}` : `Confirm removal of ${artworkDescriptor}`}
-              cancelAccessibleName={`Keep ${artworkDescriptor} in exhibition`}
-              pending={isBusy}
-              onConfirm={() => onRemove(item)}
-              onCancel={onCancelRemoval}
-            />
-          )}
         </div>
+        {isActive && (
+          <div id={editorId} className="current-artwork-item__editor">
+            <form className="curatorial-note-form" onSubmit={submitNote} aria-busy={isSaving}>
+              <label htmlFor={noteId}>Curatorial note for artwork {item.position} of {itemCount}: {item.artwork.title}</label>
+              <textarea
+                id={noteId}
+                value={note}
+                onChange={(event) => onNoteChange(item.id, event.target.value)}
+                maxLength={MAXIMUM_CURATORIAL_NOTE_LENGTH + 1}
+                disabled={disabled}
+                aria-invalid={Boolean(noteError)}
+                aria-describedby={noteError ? noteErrorId : undefined}
+              />
+              {noteError && <p className="field-error" id={noteErrorId}>{noteError}</p>}
+              <ValidationSummary feedback={noteValidationFeedback} />
+              <div className="current-artwork-item__actions">
+                <button aria-label={isSaving ? `Saving note for ${artworkDescriptor}` : `Save note for ${artworkDescriptor}`} className="button button-secondary" type="submit" disabled={disabled}>
+                  {isSaving ? 'Saving…' : 'Save note'}
+                </button>
+                <button aria-label={`Clear note for ${artworkDescriptor}`} className="button button-secondary" type="button" disabled={disabled || !canClearNote} onClick={() => onSaveNote(item, '')}>
+                  Clear note
+                </button>
+              </div>
+            </form>
+            <div className="current-artwork-item__actions current-artwork-item__actions--secondary">
+              {isCurrentCover ? (
+                <>
+                  <p className="current-artwork-item__cover">Current cover</p>
+                  <button
+                    aria-label={`Clear cover, ${artworkDescriptor}`}
+                    className="button button-secondary"
+                    type="button"
+                    disabled={disabled}
+                    onClick={onClearCover}
+                  >
+                    {coverMutation?.kind === 'clear' ? 'Clearing…' : 'Clear cover'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  aria-label={isSettingCover
+                    ? `Setting cover to ${artworkDescriptor}`
+                    : hasCurrentCover
+                      ? `Replace cover with ${artworkDescriptor}`
+                      : `Set ${artworkDescriptor} as cover`}
+                  className="button button-secondary"
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onSelectCover(item)}
+                >
+                  {isSettingCover ? 'Setting cover…' : hasCurrentCover ? 'Replace cover' : 'Set as cover'}
+                </button>
+              )}
+              <button aria-label={isMovingUp ? `Moving ${artworkDescriptor} up` : `Move ${artworkDescriptor} up`} className="button button-secondary" type="button" disabled={disabled || item.position === 1} onClick={() => onMove(item, 'up')}>
+                {isMovingUp ? 'Moving…' : 'Move up'}
+              </button>
+              <button aria-label={isMovingDown ? `Moving ${artworkDescriptor} down` : `Move ${artworkDescriptor} down`} className="button button-secondary" type="button" disabled={disabled || item.position === itemCount} onClick={() => onMove(item, 'down')}>
+                {isMovingDown ? 'Moving…' : 'Move down'}
+              </button>
+              {!isConfirmingRemoval ? (
+                <button aria-label={`Remove ${artworkDescriptor} from exhibition`} ref={removeButtonRef} className="button button-danger" type="button" disabled={disabled} onClick={() => onRequestRemoval(item.id)}>
+                  Remove artwork
+                </button>
+              ) : (
+                <InlineDestructiveConfirmation
+                  className="item-removal-confirmation"
+                  name={`Remove ${artworkDescriptor}?`}
+                  description={`Remove ${item.artwork.title} from this exhibition? This cannot be undone.`}
+                  confirmLabel="Confirm removal"
+                  pendingLabel="Removing…"
+                  cancelLabel="Keep artwork"
+                  confirmAccessibleName={isRemoving ? `Removing ${artworkDescriptor}` : `Confirm removal of ${artworkDescriptor}`}
+                  cancelAccessibleName={`Keep ${artworkDescriptor} in exhibition`}
+                  pending={isBusy}
+                  onConfirm={() => onRemove(item)}
+                  onCancel={onCancelRemoval}
+                />
+              )}
+            </div>
+          </div>
+        )}
       </article>
     </li>
   )
@@ -1254,6 +1364,13 @@ function SearchContent({
       <p className="results-count" role="status" aria-live="polite" aria-atomic="true">
         {results.items.length} {results.items.length === 1 ? 'result' : 'results'} on page {results.page}.
       </p>
+      <SearchPagination
+        results={results}
+        activeQuery={activeQuery}
+        searching={searching}
+        onPageChange={onPageChange}
+        position="above"
+      />
       <div className="museum-results__grid">
         {results.items.map((artwork, index) => {
           const alreadyAdded = isAlreadyAdded(artwork)
@@ -1270,25 +1387,30 @@ function SearchContent({
               />
               <div className="museum-artwork-card__body">
                 <h3>{artwork.title}</h3>
-                <p>{artwork.artistDisplay || 'Artist unknown'}</p>
-                {artwork.dateDisplay && <p>{artwork.dateDisplay}</p>}
-                {artwork.mediumDisplay && <p>{artwork.mediumDisplay}</p>}
-                <p className="artwork-card__status">Public domain</p>
-                {alreadyAdded ? (
-                  <p className="artwork-card__added">Already added</p>
-                ) : (
-                  <button
-                    className="button"
-                    type="button"
-                    disabled={disabled}
-                    aria-label={addingExternalId === artwork.externalId
-                      ? `Adding ${artworkDescriptor}`
-                      : `Add ${artworkDescriptor}`}
-                    onClick={() => onAdd(artwork)}
-                  >
-                    {addingExternalId === artwork.externalId ? 'Adding…' : 'Add artwork'}
-                  </button>
+                <p className="museum-artwork-card__creator">{artwork.artistDisplay || 'Artist unknown'}</p>
+                {artwork.dateDisplay && <p className="museum-artwork-card__date">{artwork.dateDisplay}</p>}
+                {(artwork.mediumDisplay || artwork.creditLine) && (
+                  <details className="museum-artwork-card__details">
+                    <summary aria-label={`Object details for ${artworkDescriptor}`}>Object details</summary>
+                    {artwork.mediumDisplay && <p>{artwork.mediumDisplay}</p>}
+                    {artwork.creditLine && <p>{artwork.creditLine}</p>}
+                  </details>
                 )}
+              </div>
+              <div className="museum-artwork-card__action">
+                {alreadyAdded ? <p className="artwork-card__added">Already added</p> : (
+                    <button
+                      className="button"
+                      type="button"
+                      disabled={disabled}
+                      aria-label={addingExternalId === artwork.externalId
+                        ? `Adding ${artworkDescriptor}`
+                        : `Add ${artworkDescriptor}`}
+                      onClick={() => onAdd(artwork)}
+                    >
+                      {addingExternalId === artwork.externalId ? 'Adding…' : 'Add artwork'}
+                    </button>
+                  )}
               </div>
             </article>
           )
@@ -1299,6 +1421,7 @@ function SearchContent({
         activeQuery={activeQuery}
         searching={searching}
         onPageChange={onPageChange}
+        position="below"
       />
     </div>
   )
@@ -1309,14 +1432,16 @@ function SearchPagination({
   activeQuery,
   searching,
   onPageChange,
+  position = 'below',
 }: {
   results: MuseumArtworkSearchPage
   activeQuery: string
   searching: boolean
   onPageChange: (query: string, page: number) => void
+  position?: 'above' | 'below'
 }) {
   return (
-    <nav className="search-pagination" aria-label="Search result pages">
+    <nav className={`search-pagination search-pagination--${position}`} aria-label={`Search result pages ${position} results`}>
       <button className="button button-secondary" type="button" disabled={searching || results.page <= 1} onClick={() => onPageChange(activeQuery, results.page - 1)}>
         Previous page
       </button>
