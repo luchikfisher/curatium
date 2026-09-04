@@ -95,15 +95,16 @@ describe('public exhibition view', () => {
     expect(await screen.findByRole('heading', { name: 'Lines of Light' })).toBeInTheDocument()
     expect(screen.getByText('A study of light and form.')).toBeInTheDocument()
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
-    const coverImage = screen.getByRole('img', { name: 'Cover artwork: Nocturne' })
+    const prologue = document.querySelector('.standard-exhibition__prologue')
+    expect(prologue).toContainElement(screen.getByRole('heading', { name: 'Lines of Light', level: 1 }))
+    expect(prologue).toContainElement(screen.getByRole('region', { name: 'Exhibition introduction' }))
     const artworkImage = screen.getByRole('img', { name: 'Artwork 1 of 1: Nocturne' })
-    expect(coverImage.closest('.artwork-image')).toHaveClass('artwork-image--cover')
     expect(artworkImage.closest('.artwork-image')).toHaveClass('artwork-image--artwork')
     expect(artworkImage).toHaveAttribute(
       'src',
       '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
     )
-    expect(screen.getAllByText('James McNeill Whistler')).toHaveLength(2)
+    expect(screen.getByText('James McNeill Whistler')).toBeInTheDocument()
     expect(screen.getByText('1875')).toBeInTheDocument()
     expect(screen.getByText('Oil on canvas')).toBeInTheDocument()
     expect(screen.getByText('Museum collection')).toBeInTheDocument()
@@ -116,6 +117,8 @@ describe('public exhibition view', () => {
     expect(sourceLink).toHaveAttribute('target', '_blank')
     expect(sourceLink).toHaveAttribute('rel', 'noreferrer')
     expect(document.querySelector('time[datetime="2026-07-22T14:30:00Z"]')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Cover artwork' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /Cover artwork:/ })).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/public/exhibitions/1', expect.any(Object))
     expect(fetchMock).not.toHaveBeenCalledWith('/api/exhibitions/1', expect.anything())
     expect(screen.queryByRole('link', { name: 'Return to curator preview' })).not.toBeInTheDocument()
@@ -282,7 +285,7 @@ describe('public exhibition view', () => {
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
   })
 
-  it('normalizes omitted nullable metadata and renders missing-cover and empty-content states', async () => {
+  it('omits absent optional editorial content while retaining core artwork identity', async () => {
     const sparseArtwork = item(1, {
       title: 'Untitled',
       artistDisplay: undefined,
@@ -301,16 +304,11 @@ describe('public exhibition view', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(sparseDetail)))
     renderAt('/visit/1')
 
-    expect(await screen.findByText('No summary has been provided.')).toBeInTheDocument()
-    expect(screen.getByText('Publication date unavailable.')).toBeInTheDocument()
-    expect(screen.getByText('No introduction has been provided.')).toBeInTheDocument()
-    expect(screen.getByText('No cover artwork has been selected.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Lines of Light', level: 1 })).toBeInTheDocument()
     expect(screen.getByText('Artist unknown')).toBeInTheDocument()
-    expect(screen.getByText('Date unavailable')).toBeInTheDocument()
-    expect(screen.getByText('Medium unavailable')).toBeInTheDocument()
-    expect(screen.getByText('Credit line unavailable')).toBeInTheDocument()
-    expect(screen.getByText('No curatorial note.')).toBeInTheDocument()
-    expect(screen.getByText('Artwork source unavailable.')).toBeInTheDocument()
+    expect(screen.queryByText(/No summary|Publication date unavailable|No introduction|No cover artwork|Date unavailable|Medium unavailable|Credit line unavailable|No curatorial note|Artwork source unavailable/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /Curatorial note/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Object details')).not.toBeInTheDocument()
   })
 
   it('keeps same-titled artworks distinguishable through image and source-link names', async () => {
@@ -323,6 +321,33 @@ describe('public exhibition view', () => {
     expect(screen.getByRole('img', { name: 'Artwork 2 of 2: Untitled' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'View source for artwork 1 of 2: Untitled (opens in a new tab)' })).toHaveAttribute('href', 'https://museum.example/one')
     expect(screen.getByRole('link', { name: 'View source for artwork 2 of 2: Untitled (opens in a new tab)' })).toHaveAttribute('href', 'https://museum.example/two')
+    const detailDisclosures = [...document.querySelectorAll<HTMLDetailsElement>('.standard-exhibition__details')]
+    expect(detailDisclosures.map((details) => details.querySelector('summary')?.getAttribute('aria-label'))).toEqual([
+      'Object details for artwork 1 of 2: Untitled',
+      'Object details for artwork 2 of 2: Untitled',
+    ])
+    expect(detailDisclosures.map((details) => details.querySelector('summary')?.textContent)).toEqual([
+      'Object details',
+      'Object details',
+    ])
+  })
+
+  it('uses every ordered artwork once even when the cover is later in the sequence', async () => {
+    vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(false)
+    const first = item(1, { id: 101, title: 'Opening work' })
+    const second = item(2, { id: 202, title: 'Selected cover' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({
+      coverArtworkId: 202,
+      items: [second, first],
+    }))))
+    renderAt('/visit/1')
+
+    const artworkList = await screen.findByRole('list', { name: 'Exhibition artworks' })
+    expect(within(artworkList).getAllByRole('img')).toHaveLength(2)
+    expect(within(artworkList).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      'Opening work', 'Selected cover',
+    ])
+    expect(screen.queryByRole('img', { name: /Cover artwork:/ })).not.toBeInTheDocument()
   })
 
   it('shows the same not-found state for a hidden draft and retries the public endpoint', async () => {
@@ -402,7 +427,7 @@ describe('public exhibition view', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/')
 
-    await userEvent.click(await screen.findByRole('link', { name: /Enter exhibition/ }))
+    await userEvent.click(await screen.findByRole('link', { name: /Visit exhibition/ }))
 
     expect(await screen.findByRole('heading', { name: 'Lines of Light' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/visit/1')

@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import { ArtworkImage } from '../components/ArtworkImage'
-import { ArtworkSourceLink } from '../components/ArtworkSourceLink'
 import { isFrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getExhibition, publishExhibition, unpublishExhibition } from '../features/exhibitions/api'
@@ -10,7 +8,8 @@ import { CuratorExhibitionContext } from '../features/exhibitions/CuratorExhibit
 import { CuratorPageHeading } from '../features/exhibitions/CuratorPageHeading'
 import { readArtworkSearchReturnTarget } from '../features/exhibitions/artworkSearchNavigation'
 import { createCuratorVisitState } from '../features/exhibitions/curatorVisitState'
-import type { ExhibitionArtwork, ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
+import { StandardExhibitionContent } from '../features/exhibitions/StandardExhibitionContent'
+import type { ExhibitionDetail, ExhibitionItem } from '../features/exhibitions/types'
 import { useRouteDocumentTitle } from '../features/route-orientation/useRouteDocumentTitle'
 import { useRouteFocusTarget } from '../features/route-orientation/useRouteFocusTarget'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
@@ -129,10 +128,9 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
     return <PreviewLoadError error={error} onRetry={retryPreview} />
   }
 
-  const orderedItems = [...exhibition.items].sort((first, second) => first.position - second.position)
   const coverItem = exhibition.coverArtworkId === null
     ? null
-    : orderedItems.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
+    : exhibition.items.find((item) => item.artwork.id === exhibition.coverArtworkId) ?? null
   const isPublished = exhibition.status === 'PUBLISHED'
   const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
   const artworkSearchReturnTarget = readArtworkSearchReturnTarget(location.state, exhibitionId)
@@ -181,26 +179,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           onClearFeedback={clearPublicationFeedback}
         />
       </section>
-      <section className="preview-introduction" aria-labelledby="preview-introduction-heading">
-        <h2 id="preview-introduction-heading">Introduction</h2>
-        {exhibition.introduction
-          ? <p>{exhibition.introduction}</p>
-          : <p className="preview-empty-copy">No introduction has been provided.</p>}
-      </section>
-      <section className="preview-cover" aria-labelledby="preview-cover-heading">
-        <h2 id="preview-cover-heading">Cover artwork</h2>
-        {coverItem ? <CoverArtwork item={coverItem} /> : <p className="preview-empty-copy">No cover artwork has been selected.</p>}
-      </section>
-      <section className="preview-artworks" aria-labelledby="preview-artworks-heading">
-        <h2 id="preview-artworks-heading">Artworks ({orderedItems.length})</h2>
-        {orderedItems.length === 0 ? (
-          <p className="preview-empty-copy">No artworks have been added to this exhibition.</p>
-        ) : (
-          <ol className="preview-artwork-list" aria-label="Exhibition artworks">
-            {orderedItems.map((item) => <PreviewArtwork key={item.id} item={item} itemCount={orderedItems.length} />)}
-          </ol>
-        )}
-      </section>
+      <StandardExhibitionContent exhibition={exhibition} variant="preview" headingLevel={2} />
     </section>
   )
 }
@@ -401,55 +380,6 @@ function PublicationError({ error }: { error: Error }) {
     }
   }
   return <p className="form-alert" role="alert">{message}</p>
-}
-
-function CoverArtwork({ item }: { item: ExhibitionItem }) {
-  return (
-    <article className="preview-cover__content">
-      <ArtworkImage src={imageFor(item.artwork)} visualRole="cover" alt={`Cover artwork: ${item.artwork.title}`} className="preview-artwork-image" />
-      <div>
-        <p className="preview-cover__label">Current cover</p>
-        <h3>{item.artwork.title}</h3>
-        <p>{item.artwork.artistDisplay || 'Artist unknown'}</p>
-      </div>
-    </article>
-  )
-}
-
-function PreviewArtwork({ item, itemCount }: { item: ExhibitionItem; itemCount: number }) {
-  const { artwork } = item
-  return (
-    <li>
-      <article className="preview-artwork">
-        <ArtworkImage src={imageFor(artwork)} visualRole="artwork" alt={`Artwork ${item.position} of ${itemCount}: ${artwork.title}`} className="preview-artwork-image" />
-        <div className="preview-artwork__body">
-          <p className="preview-artwork__position">Artwork {item.position} of {itemCount}</p>
-          <h3>{artwork.title}</h3>
-          <p>{artwork.artistDisplay || 'Artist unknown'}</p>
-          {artwork.dateDisplay && <p>{artwork.dateDisplay}</p>}
-          {artwork.mediumDisplay && <p>{artwork.mediumDisplay}</p>}
-          {artwork.creditLine && <p>{artwork.creditLine}</p>}
-          <p>{artwork.publicDomain ? 'Public domain' : 'Rights status unavailable'}</p>
-          {artwork.sourceUrl && (
-            <ArtworkSourceLink
-              href={artwork.sourceUrl}
-              descriptor={`artwork ${item.position} of ${itemCount}: ${artwork.title}`}
-            />
-          )}
-          <section className="preview-artwork__note" aria-label={`Curatorial note for artwork ${item.position} of ${itemCount}: ${artwork.title}`}>
-            <h4>Curatorial note</h4>
-            {item.curatorialNote
-              ? <p>{item.curatorialNote}</p>
-              : <p className="preview-empty-copy">No curatorial note.</p>}
-          </section>
-        </div>
-      </article>
-    </li>
-  )
-}
-
-function imageFor(artwork: ExhibitionArtwork) {
-  return artwork.imageUrl || artwork.thumbnailUrl
 }
 
 function formatTimestamp(value: string) {

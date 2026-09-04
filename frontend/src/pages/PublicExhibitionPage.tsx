@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isFrontendError, FrontendError } from '../api/errors'
 import { LoadingState } from '../components/AsyncState'
 import { getPublicExhibition } from '../features/exhibitions/api'
-import { PublicExhibitionContent } from '../features/exhibitions/PublicExhibitionContent'
+import { StandardExhibitionContent } from '../features/exhibitions/StandardExhibitionContent'
 import { useExhibition } from '../features/exhibitions/useExhibition'
 import { curatorReturnTarget } from '../features/exhibitions/curatorVisitState'
 import { LazyExhibitionGallery } from '../features/virtual-gallery/LazyExhibitionGallery'
@@ -82,7 +82,7 @@ function StandardExhibition({
 }) {
   return (
     <>
-      <PublicExhibitionContent exhibition={exhibition} headingLevel={headingLevel} />
+      <StandardExhibitionContent exhibition={exhibition} variant="public" headingLevel={headingLevel} />
       <nav className="public-exhibition__navigation" aria-label="Exhibition navigation">
         {curatorReturnTo && (
           <Link className="text-link" to={curatorReturnTo}>Return to curator preview</Link>

@@ -99,18 +99,14 @@ describe('curator exhibition preview', () => {
     expect(screen.getByText('A study of light and form.')).toBeInTheDocument()
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
     expect(screen.getByText('This draft is visible only in the curator workspace.')).toBeInTheDocument()
-    const coverImage = screen.getByRole('img', { name: 'Cover artwork: Nocturne' })
-    expect(coverImage.closest('.artwork-image')).toHaveClass('artwork-image--cover')
-    expect(coverImage).toHaveAttribute(
-      'src',
-      '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/display',
-    )
     const detailImages = screen.getAllByRole('img', { name: /^Artwork \d+ of 2: Nocturne$/ })
     expect(detailImages).toHaveLength(2)
     expect(detailImages.every((image) => image.closest('.artwork-image')?.classList.contains('artwork-image--artwork'))).toBe(true)
     expect(screen.getByText('Note for artwork 1.')).toBeInTheDocument()
     expect(screen.getByText('Artist unknown')).toBeInTheDocument()
     expect(screen.getAllByText('Public domain')).toHaveLength(2)
+    expect(screen.queryByRole('heading', { name: 'Cover artwork' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /Cover artwork:/ })).not.toBeInTheDocument()
     const sourceLink = screen.getByRole('link', { name: 'View source for artwork 1 of 2: Nocturne (opens in a new tab)' })
     expect(sourceLink).toHaveAttribute('href', 'https://museum.example/artworks/154235')
     expect(sourceLink).toHaveAttribute('target', '_blank')
@@ -118,6 +114,8 @@ describe('curator exhibition preview', () => {
     expect(screen.getByRole('link', {
       name: 'View source for artwork 2 of 2: Nocturne (opens in a new tab)',
     })).toHaveAttribute('href', 'https://museum.example/artworks/154235')
+    expect(screen.getByRole('heading', { name: 'Standard exhibition', level: 2 })).toBeInTheDocument()
+    expect(document.querySelector('.standard-exhibition--preview')).toBeInTheDocument()
   })
 
   it('renders a complete published preview without using the public endpoint', async () => {
@@ -179,12 +177,12 @@ describe('curator exhibition preview', () => {
     renderAt('/exhibitions/1/preview')
 
     await screen.findByRole('heading', { name: 'First committed artwork' })
-    expect(within(screen.getByRole('list', { name: 'Exhibition artworks' })).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+    expect(within(screen.getByRole('list', { name: 'Exhibition artworks' })).getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent)).toEqual([
       'First committed artwork', 'Second committed artwork', 'Third committed artwork',
     ])
   })
 
-  it('normalizes omitted nullable fields and shows sensible empty states', async () => {
+  it('omits absent optional content from the shared standard composition', async () => {
     const noNote = item(1)
     delete (noNote as { curatorialNote?: string }).curatorialNote
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail({
@@ -196,17 +194,19 @@ describe('curator exhibition preview', () => {
     renderAt('/exhibitions/1/preview')
 
     expect(await screen.findByText('No summary has been provided.')).toBeInTheDocument()
-    expect(screen.getByText('No introduction has been provided.')).toBeInTheDocument()
-    expect(screen.getByText('No cover artwork has been selected.')).toBeInTheDocument()
-    expect(screen.getByText('No curatorial note.')).toBeInTheDocument()
+    expect(screen.queryByText('No introduction has been provided.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No cover artwork has been selected.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No curatorial note.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /Curatorial note/ })).not.toBeInTheDocument()
   })
 
   it('renders an empty exhibition state', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(detail())))
     renderAt('/exhibitions/1/preview')
 
-    expect(await screen.findByRole('heading', { name: 'Artworks (0)' })).toBeInTheDocument()
-    expect(screen.getByText('No artworks have been added to this exhibition.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Artworks', level: 3 })).toBeInTheDocument()
+    expect(screen.getByText('0 works')).toBeInTheDocument()
+    expect(screen.getByText('No artworks are currently included in this exhibition.')).toBeInTheDocument()
   })
 
   it('handles an invalid route ID without loading', () => {
@@ -522,8 +522,8 @@ describe('curator exhibition preview', () => {
     expect(screen.getByText('Preserved introduction')).toBeInTheDocument()
     expect(screen.getByText('Preserved note.')).toBeInTheDocument()
     expect(screen.getByText('Second preserved note.')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Cover artwork: Preserved cover' })).toBeInTheDocument()
-    expect(within(screen.getByRole('list', { name: 'Exhibition artworks' })).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+    expect(screen.queryByRole('img', { name: 'Cover artwork: Preserved cover' })).not.toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Exhibition artworks' })).getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent)).toEqual([
       'Preserved cover', 'Preserved second artwork',
     ])
     expect(screen.getByText('Preserved artist')).toBeInTheDocument()

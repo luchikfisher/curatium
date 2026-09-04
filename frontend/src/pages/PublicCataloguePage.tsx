@@ -1,5 +1,5 @@
 import { EmptyState, ErrorState, LoadingState } from '../components/AsyncState'
-import { ExhibitionCard } from '../components/ExhibitionCard'
+import { PublicExhibitionCard } from '../components/PublicExhibitionCard'
 import { listPublicExhibitions } from '../features/exhibitions/api'
 import { useExhibitions } from '../features/exhibitions/useExhibitions'
 
@@ -7,18 +7,18 @@ export function PublicCataloguePage() {
   const { data, error, retry } = useExhibitions(listPublicExhibitions)
 
   return (
-    <>
-      <section className="page-heading page-heading--hero">
-        <p className="eyebrow">Public exhibitions</p>
-        <h1>Art, brought into conversation.</h1>
+    <section className="public-catalogue" aria-labelledby="public-catalogue-heading">
+      <header className="public-catalogue__introduction">
+        <div className="public-catalogue__identity">
+          <p className="eyebrow">Public exhibitions</p>
+          <h1 id="public-catalogue-heading">Art, brought into conversation.</h1>
+        </div>
         <p className="lede">
           Explore small, thoughtful exhibitions assembled from museum collections.
         </p>
-      </section>
-      <section className="content-section" aria-labelledby="catalogue-heading">
-        <div className="section-heading">
-          <h2 id="catalogue-heading">Now showing</h2>
-        </div>
+      </header>
+      <section className="public-catalogue__collection" aria-labelledby="catalogue-heading">
+        <h2 id="catalogue-heading" className="visually-hidden">Now showing</h2>
         {data === null && !error && <LoadingState label="Loading exhibitions…" geometry="exhibition-grid" />}
         {error && <ErrorState error={error} onRetry={retry} />}
         {data?.length === 0 && (
@@ -29,7 +29,7 @@ export function PublicCataloguePage() {
         {data && data.length > 0 && (
           <div className="exhibition-grid">
             {data.map((exhibition, index) => (
-              <ExhibitionCard
+              <PublicExhibitionCard
                 key={exhibition.id}
                 exhibition={exhibition}
                 position={index + 1}
@@ -39,6 +39,6 @@ export function PublicCataloguePage() {
           </div>
         )}
       </section>
-    </>
+    </section>
   )
 }

@@ -136,9 +136,9 @@ describe('route screens', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderAt('/')
 
-    expect(await screen.findByRole('link', { name: 'Enter exhibition 1 of 2: Untitled exhibition' }))
+    expect(await screen.findByRole('link', { name: 'Visit exhibition 1 of 2: Untitled exhibition' }))
       .toHaveAttribute('href', '/visit/1')
-    expect(screen.getByRole('link', { name: 'Enter exhibition 2 of 2: Untitled exhibition' }))
+    expect(screen.getByRole('link', { name: 'Visit exhibition 2 of 2: Untitled exhibition' }))
       .toHaveAttribute('href', '/visit/2')
 
     cleanup()
@@ -188,11 +188,58 @@ describe('route screens', () => {
     renderAt('/')
 
     await screen.findByRole('heading', { name: 'Covered exhibition' })
-    const image = document.querySelector('.exhibition-card__image img')
+    const image = document.querySelector('.public-exhibition-card__image img')
     expect(image).toHaveAttribute('src', '/api/artwork-images/art-institute/11111111-1111-1111-1111-111111111111/thumbnail')
     expect(image).toHaveAttribute('loading', 'lazy')
     expect(image).toHaveAttribute('alt', '')
     expect(image?.closest('.artwork-image')).toHaveClass('artwork-image--cover')
+  })
+
+  it('uses artwork and title as the public entry and omits an absent optional summary', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond([
+      { ...summary('Quiet exhibition'), summary: null, artworkCount: 1 },
+    ])))
+    renderAt('/')
+
+    const entry = await screen.findByRole('link', { name: 'Visit exhibition 1 of 1: Quiet exhibition' })
+    expect(within(entry).getByRole('heading', { name: 'Quiet exhibition' })).toBeInTheDocument()
+    expect(entry.querySelector('.artwork-image--cover')).toBeInTheDocument()
+    expect(within(entry).getByText('1 artwork')).toBeInTheDocument()
+    const collectionHeading = screen.getByRole('heading', { name: 'Now showing' })
+    expect(entry.closest('.public-catalogue')).toContainElement(collectionHeading)
+    expect(collectionHeading).toHaveClass('visually-hidden')
+    expect(within(entry).queryByText('Exhibition 1')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No summary/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps a many-exhibition catalogue in source order with distinct whole-entry links', async () => {
+    const exhibitions = Array.from({ length: 6 }, (_, index) => ({
+      ...summary(`Exhibition ${index + 1}`),
+      id: index + 1,
+      summary: index % 2 === 0 ? null : `Summary ${index + 1}`,
+      coverImageUrl: index === 0
+        ? null
+        : `/api/artwork-images/art-institute/${index + 1}/thumbnail`,
+      artworkCount: index,
+    }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(exhibitions)))
+    renderAt('/')
+
+    const catalogue = await screen.findByRole('region', { name: 'Now showing' })
+    const cards = within(catalogue).getAllByRole('article')
+    expect(cards).toHaveLength(6)
+    expect(cards.map((card) => within(card).getByRole('heading', { level: 2 }).textContent)).toEqual(
+      exhibitions.map((exhibition) => exhibition.title),
+    )
+    cards.forEach((card, index) => {
+      const link = within(card).getByRole('link', {
+        name: `Visit exhibition ${index + 1} of 6: Exhibition ${index + 1}`,
+      })
+      expect(link).toHaveAttribute('href', `/visit/${index + 1}`)
+      expect(link.querySelector('.artwork-image--cover')).toBeInTheDocument()
+    })
+    expect(cards[0].querySelector('.artwork-image--failed img')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No summary/i)).not.toBeInTheDocument()
   })
 
   it('retries a recoverable catalogue error', async () => {
