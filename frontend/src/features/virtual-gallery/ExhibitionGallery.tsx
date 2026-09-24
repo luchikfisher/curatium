@@ -51,12 +51,14 @@ export function ExhibitionGallery({
   fallback,
   rendererLoadingFallback,
   headingLevel = 2,
+  heading,
   exitAction,
 }: {
   exhibition: GalleryExhibition
   fallback: ReactNode
   rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
+  heading?: string
   exitAction: ReactNode
 }) {
   const sessionKey = gallerySessionKey(exhibition)
@@ -68,6 +70,7 @@ export function ExhibitionGallery({
       fallback={fallback}
       rendererLoadingFallback={rendererLoadingFallback}
       headingLevel={headingLevel}
+      heading={heading}
       exitAction={exitAction}
     />
   )
@@ -79,6 +82,7 @@ function GalleryInstance({
   fallback,
   rendererLoadingFallback,
   headingLevel = 2,
+  heading,
   exitAction,
 }: {
   sessionKey: string
@@ -86,6 +90,7 @@ function GalleryInstance({
   fallback: ReactNode
   rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
+  heading?: string
   exitAction: ReactNode
 }) {
   const narrowGalleryViewport = useNarrowGalleryViewport()
@@ -323,9 +328,12 @@ function GalleryInstance({
             onContinue={continueInStandardGallery}
           />
         ) : (
-          <GalleryStandardModePanel
+          <GalleryModeControl
             ref={standardModeRef}
-            onReturn={phase.kind === 'awaiting-entry' ? returnToPreEntry : returnToVirtualGallery}
+            mode="standard"
+            onVirtual={phase.kind === 'awaiting-entry' ? returnToPreEntry : returnToVirtualGallery}
+            onStandard={() => undefined}
+            exitAction={exitAction}
           />
         )}
         <div ref={standardContentRef} tabIndex={-1} aria-label="Standard gallery content">
@@ -357,14 +365,14 @@ function GalleryInstance({
       <section ref={virtualGalleryRef} className="virtual-gallery" tabIndex={-1} aria-labelledby={`virtual-gallery-${exhibition.id}`}>
         <div className="virtual-gallery__header">
           <p className="eyebrow">Virtual gallery</p>
-          <Heading id={`virtual-gallery-${exhibition.id}`}>{exhibition.title}</Heading>
+          <Heading id={`virtual-gallery-${exhibition.id}`}>{heading ?? exhibition.title}</Heading>
           <p>{tourStarted ? 'Explore the exhibition in its curated order.' : 'Begin with the curator’s introduction, then visit each artwork in order.'}</p>
-          <div className="virtual-gallery__actions">
-            <button className="text-link" type="button" onClick={showStandardGallery}>
-              View as standard gallery
-            </button>
-            {exitAction}
-          </div>
+          <GalleryModeControl
+            mode="virtual"
+            onVirtual={() => undefined}
+            onStandard={showStandardGallery}
+            exitAction={exitAction}
+          />
         </div>
         {narrowGalleryViewport && galleryNavigation}
         <div key="gallery-experience" className="virtual-gallery__experience">
@@ -584,15 +592,40 @@ function createFailedRenderer(canvas: unknown): WebGLRenderer {
   } as unknown as WebGLRenderer
 }
 
-const GalleryStandardModePanel = ({ onReturn, ref }: { onReturn: () => void; ref: Ref<HTMLElement> }) => {
+const GalleryModeControl = ({
+  mode,
+  onVirtual,
+  onStandard,
+  exitAction,
+  ref,
+}: {
+  mode: GalleryMode
+  onVirtual: () => void
+  onStandard: () => void
+  exitAction: ReactNode
+  ref?: Ref<HTMLElement>
+}) => {
   return (
-    <section ref={ref} className="gallery-recovery gallery-recovery--standard" tabIndex={-1} aria-labelledby="gallery-standard-heading">
-      <p className="eyebrow">Standard gallery</p>
-      <h2 id="gallery-standard-heading">Viewing the standard gallery</h2>
-      <p>You can return to the 3D gallery at any time.</p>
-      <div className="gallery-recovery__actions">
-        <button className="button button-secondary" type="button" onClick={onReturn}>Return to virtual gallery</button>
+    <section ref={ref} className={`gallery-mode-control gallery-mode-control--${mode}`} tabIndex={-1} aria-label="Gallery view controls">
+      <div className="gallery-mode-control__switch" role="group" aria-label="Gallery mode">
+        <button
+          type="button"
+          aria-label={mode === 'standard' ? 'Return to virtual gallery' : 'Virtual gallery'}
+          aria-pressed={mode === 'virtual'}
+          onClick={onVirtual}
+        >
+          Virtual
+        </button>
+        <button
+          type="button"
+          aria-label={mode === 'virtual' ? 'View as standard gallery' : 'Standard gallery'}
+          aria-pressed={mode === 'standard'}
+          onClick={onStandard}
+        >
+          Standard
+        </button>
       </div>
+      <div className="gallery-mode-control__exit">{exitAction}</div>
     </section>
   )
 }

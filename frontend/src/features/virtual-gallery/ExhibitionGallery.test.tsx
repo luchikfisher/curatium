@@ -662,14 +662,17 @@ describe('ExhibitionGallery renderer recovery', () => {
     expect(canvasState.rendererFactoryCalls).toBe(2)
   })
 
-  it('keeps deliberate standard mode distinct and moves focus to the standard-mode panel', () => {
+  it('keeps deliberate standard mode distinct and moves focus to the intentional mode control', () => {
     vi.spyOn(webgl, 'supportsWebGL').mockReturnValue(true)
     renderGallery()
     markRendererReady()
 
     fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
 
-    expect(screen.getByRole('region', { name: 'Viewing the standard gallery' })).toHaveFocus()
+    const modeControl = screen.getByRole('region', { name: 'Gallery view controls' })
+    expect(modeControl).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Standard gallery' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Return to virtual gallery' })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.queryByRole('region', { name: 'Showing the standard gallery' })).not.toBeInTheDocument()
     expect(screen.getByText('Standard exhibition content')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Return to virtual gallery' })).toBeInTheDocument()
@@ -733,7 +736,7 @@ describe('ExhibitionGallery renderer recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
     loadingAttempt.onCreated?.()
 
-    expect(screen.getByRole('region', { name: 'Viewing the standard gallery' })).toHaveFocus()
+    expect(screen.getByRole('region', { name: 'Gallery view controls' })).toHaveFocus()
     expect(screen.queryByRole('button', { name: 'Begin tour' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
     expect(screen.getByText('Trying the 3D gallery again…')).toBeInTheDocument()

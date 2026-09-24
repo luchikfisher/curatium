@@ -12,12 +12,14 @@ export function LazyExhibitionGallery({
   fallback,
   rendererLoadingFallback,
   headingLevel,
+  heading,
   exitAction,
 }: {
   exhibition: GalleryExhibition
   fallback: ReactNode
   rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
+  heading?: string
   exitAction: ReactNode
 }) {
   const galleryShellRef = useRef<HTMLDivElement>(null)
@@ -56,6 +58,7 @@ export function LazyExhibitionGallery({
           fallback={fallback}
           rendererLoadingFallback={rendererLoadingFallback}
           headingLevel={headingLevel}
+          heading={heading}
           exitAction={exitAction}
           onResolved={handleLazyGalleryResolved}
         />
@@ -98,6 +101,7 @@ function ResolvedExhibitionGallery({
   fallback,
   rendererLoadingFallback,
   headingLevel,
+  heading,
   exitAction,
   onResolved,
 }: {
@@ -105,9 +109,10 @@ function ResolvedExhibitionGallery({
   fallback: ReactNode
   rendererLoadingFallback?: ReactNode
   headingLevel?: 1 | 2
+  heading?: string
   exitAction: ReactNode
   onResolved: () => void
 }) {
   useLayoutEffect(onResolved, [onResolved])
-  return <ExhibitionGallery exhibition={exhibition} fallback={fallback} rendererLoadingFallback={rendererLoadingFallback} headingLevel={headingLevel} exitAction={exitAction} />
+  return <ExhibitionGallery exhibition={exhibition} fallback={fallback} rendererLoadingFallback={rendererLoadingFallback} headingLevel={headingLevel} heading={heading} exitAction={exitAction} />
 }

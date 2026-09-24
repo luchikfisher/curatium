@@ -98,7 +98,8 @@ describe('curator exhibition preview', () => {
     expect(await findDraftContext()).toBeInTheDocument()
     expect(screen.getByText('A study of light and form.')).toBeInTheDocument()
     expect(screen.getByText('An introductory text.')).toBeInTheDocument()
-    expect(screen.getByText('This draft is visible only in the curator workspace.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ready to publish', level: 2 })).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Publication requirements' })).not.toBeInTheDocument()
     const detailImages = screen.getAllByRole('img', { name: /^Artwork \d+ of 2: Nocturne$/ })
     expect(detailImages).toHaveLength(2)
     expect(detailImages.every((image) => image.closest('.artwork-image')?.classList.contains('artwork-image--artwork'))).toBe(true)
@@ -132,7 +133,8 @@ describe('curator exhibition preview', () => {
     const context = screen.getByRole('region', { name: 'Current exhibition' })
     expect(within(context).getByText('Published')).toBeInTheDocument()
     expect(within(context).getByRole('link', { name: 'Preview & publish' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText('This is the curator view of a published exhibition.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Published', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('This exhibition is live and available to visitors.')).toBeInTheDocument()
     expect(screen.getByText('Published', { selector: 'dd' })).toBeInTheDocument()
     expect(screen.getByText('Published', { selector: 'dt' })).toBeInTheDocument()
     expect(screen.getByText('Created', { selector: 'dt' })).toBeInTheDocument()
@@ -193,7 +195,8 @@ describe('curator exhibition preview', () => {
     }))))
     renderAt('/exhibitions/1/preview')
 
-    expect(await screen.findByText('No summary has been provided.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Lines of Light', level: 1 })).toBeInTheDocument()
+    expect(screen.queryByText('No summary has been provided.')).not.toBeInTheDocument()
     expect(screen.queryByText('No introduction has been provided.')).not.toBeInTheDocument()
     expect(screen.queryByText('No cover artwork has been selected.')).not.toBeInTheDocument()
     expect(screen.queryByText('No curatorial note.')).not.toBeInTheDocument()
@@ -281,7 +284,8 @@ describe('curator exhibition preview', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Publish exhibition' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('A published exhibition must include at least one artwork.')
-    expect(screen.getByRole('list', { name: 'Publication requirements' })).toHaveTextContent('Ready: At least one artwork')
+    expect(screen.getByRole('heading', { name: 'Ready to publish' })).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Publication requirements' })).not.toBeInTheDocument()
     expect(await findDraftContext()).toBeInTheDocument()
   })
 
@@ -292,7 +296,10 @@ describe('curator exhibition preview', () => {
 
     const publish = await screen.findByRole('button', { name: 'Publish exhibition' })
     expect(publish).toBeDisabled()
-    expect(screen.getByText('Publish is unavailable until every required item below is ready.')).toBeInTheDocument()
+    expect(screen.getByText('Publish is unavailable until the required details below are complete.')).toBeInTheDocument()
+    const requirements = screen.getByRole('list', { name: 'Publication requirements' })
+    expect(within(requirements).getAllByRole('listitem')).toHaveLength(2)
+    expect(requirements).not.toHaveTextContent('Ready:')
     expect(screen.getByRole('link', { name: 'Curate artworks' })).toHaveAttribute('href', '/exhibitions/7/artworks')
     expect(screen.getByText('Add an artwork before choosing a cover')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Choose a cover' })).not.toBeInTheDocument()
@@ -319,6 +326,7 @@ describe('curator exhibition preview', () => {
 
     const publish = await screen.findByRole('button', { name: 'Publish exhibition' })
     expect(publish).toBeDisabled()
+    expect(within(screen.getByRole('list', { name: 'Publication requirements' })).getAllByRole('listitem')).toHaveLength(1)
     expect(screen.queryByRole('link', { name: 'Curate artworks' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Choose a cover' })).toHaveAttribute('href', '/exhibitions/1/artworks')
     await userEvent.click(publish)
@@ -395,7 +403,8 @@ describe('curator exhibition preview', () => {
 
     const publish = await screen.findByRole('button', { name: 'Publish exhibition' })
     expect(publish).toBeEnabled()
-    expect(screen.getByText('This exhibition is ready to publish. Curatium will verify the current server state when you publish.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ready to publish' })).toBeInTheDocument()
+    expect(screen.getByText('All required details are in place. Curatium will verify the current server state when you publish.')).toBeInTheDocument()
     await userEvent.click(publish)
 
     expect(await screen.findByRole('link', { name: 'View public exhibition' })).toHaveAttribute('href', '/visit/1')

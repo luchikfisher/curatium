@@ -135,13 +135,14 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
   const reconciledUnpublishDraft = !isPublished && publicationErrorAction === 'unpublish'
   const artworkSearchReturnTarget = readArtworkSearchReturnTarget(location.state, exhibitionId)
   const artworksDestination = artworkSearchReturnTarget ?? `/exhibitions/${exhibitionId}/artworks`
+  const standardPreview = <StandardExhibitionContent exhibition={exhibition} variant="preview" headingLevel={2} />
 
   return (
     <section className="exhibition-preview">
       <CuratorPageHeading
         title={exhibition.title}
         step="Preview & publish"
-        description={exhibition.summary || 'No summary has been provided.'}
+        description={exhibition.summary}
         focusTarget={false}
       />
       <CuratorExhibitionContext
@@ -150,23 +151,7 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
         artworksDestination={artworksDestination}
         statusRef={previewStatusRef}
       />
-      <LazyExhibitionGallery
-        exhibition={exhibition}
-        fallback={<p className="virtual-gallery__fallback">The standard curator preview is shown below.</p>}
-        exitAction={<Link className="text-link" to={`/exhibitions/${exhibition.id}/edit`}>Return to exhibition editor</Link>}
-      />
-      <section className="preview-publication" aria-labelledby="preview-publication-heading">
-        <h2 id="preview-publication-heading">Publication details</h2>
-        <p>{isPublished
-          ? 'This is the curator view of a published exhibition.'
-          : 'This draft is visible only in the curator workspace.'}
-        </p>
-        <dl>
-          <div><dt>Status</dt><dd>{isPublished ? 'Published' : 'Draft'}</dd></div>
-          {exhibition.publishedAt && <div><dt>Published</dt><dd><time dateTime={exhibition.publishedAt}>{formatTimestamp(exhibition.publishedAt)}</time></dd></div>}
-          <div><dt>Created</dt><dd><time dateTime={exhibition.createdAt}>{formatTimestamp(exhibition.createdAt)}</time></dd></div>
-          <div><dt>Last updated</dt><dd><time dateTime={exhibition.updatedAt}>{formatTimestamp(exhibition.updatedAt)}</time></dd></div>
-        </dl>
+      <div className="preview-workspace">
         <PublicationControls
           key={reconciledUnpublishDraft ? 'reconciled-unpublish-draft' : 'publication-controls'}
           exhibition={exhibition}
@@ -178,8 +163,14 @@ function ExhibitionPreview({ exhibitionId }: { exhibitionId: number }) {
           onTransition={transitionPublication}
           onClearFeedback={clearPublicationFeedback}
         />
-      </section>
-      <StandardExhibitionContent exhibition={exhibition} variant="preview" headingLevel={2} />
+        <LazyExhibitionGallery
+          exhibition={exhibition}
+          fallback={standardPreview}
+          rendererLoadingFallback={standardPreview}
+          heading="Virtual gallery preview"
+          exitAction={<Link className="text-link" to={`/exhibitions/${exhibition.id}/edit`}>Return to exhibition editor</Link>}
+        />
+      </div>
     </section>
   )
 }
@@ -237,6 +228,7 @@ function PublicationControls({
     },
   ]
   const isReadyToPublish = prerequisites.every((prerequisite) => prerequisite.met)
+  const unmetPrerequisites = prerequisites.filter((prerequisite) => !prerequisite.met)
 
   useEffect(() => {
     if (confirmingUnpublish) cancelUnpublishRef.current?.focus({ preventScroll: true })
@@ -279,42 +271,72 @@ function PublicationControls({
     }
   }
 
+  const publishDescription = isReadyToPublish
+    ? 'publication-readiness-explanation'
+    : 'publication-readiness-explanation publication-prerequisites'
+
   return (
-    <div className="preview-publication__controls">
-      <h3>Publication controls</h3>
-      {isPublished ? (
-        <p>Published exhibitions are read-only. Unpublish to restore metadata and artwork curation.</p>
-      ) : (
-        <>
+    <section className="preview-publication" aria-labelledby="preview-publication-heading">
+      <div className="preview-publication__summary">
+        <div className="preview-publication__heading">
+          <p className="eyebrow">Publication</p>
+          <h2 id="preview-publication-heading">
+            {isPublished ? 'Published' : isReadyToPublish ? 'Ready to publish' : 'Publication requirements'}
+          </h2>
           <p id="publication-readiness-explanation">
-            {isReadyToPublish
-              ? 'This exhibition is ready to publish. Curatium will verify the current server state when you publish.'
-              : 'Publish is unavailable until every required item below is ready.'}
+            {isPublished
+              ? 'This exhibition is live and available to visitors.'
+              : isReadyToPublish
+                ? 'All required details are in place. Curatium will verify the current server state when you publish.'
+                : 'Publish is unavailable until the required details below are complete.'}
           </p>
-          <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
-            {prerequisites.map((prerequisite) => (
-              <li key={prerequisite.id}>
-                <strong>{prerequisite.met ? 'Ready' : 'Required'}:</strong> {prerequisite.label}
-                {!prerequisite.met && prerequisite.action && (
-                  <> — <Link className="text-link" to={prerequisite.to}>{prerequisite.action}</Link></>
-                )}
-              </li>
-            ))}
-          </ul>
-        </>
+        </div>
+
+        <div className="preview-publication__actions">
+          {isPublished && (
+            <Link
+              className="button preview-publication__public-link"
+              to={`/visit/${exhibition.id}`}
+              state={createCuratorVisitState(exhibition.id)}
+            >
+              View public exhibition
+            </Link>
+          )}
+          {isPublished && confirmingUnpublish ? null : (
+            <button
+              ref={isPublished ? unpublishTriggerRef : undefined}
+              className={isPublished ? 'button button-secondary' : 'button'}
+              type="button"
+              disabled={mutation !== null || (!isPublished && !isReadyToPublish)}
+              aria-describedby={isPublished ? undefined : publishDescription}
+              onClick={() => {
+                if (isPublished) requestUnpublish()
+                else if (isReadyToPublish) void onTransition('publish')
+              }}
+            >
+              {isPublishing ? 'Publishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!isPublished && !isReadyToPublish && (
+        <ul id="publication-prerequisites" className="publication-prerequisites" aria-label="Publication requirements">
+          {unmetPrerequisites.map((prerequisite) => (
+            <li key={prerequisite.id}>
+              <strong>Required:</strong> {prerequisite.label}
+              {prerequisite.action && (
+                <> — <Link className="text-link" to={prerequisite.to}>{prerequisite.action}</Link></>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
+
       {error && <PublicationError error={error} />}
       {success && <p ref={successRef} className="form-success" role="status" tabIndex={-1}>{success}</p>}
-      {isPublished && (
-        <Link
-          className="button button-secondary preview-publication__public-link"
-          to={`/visit/${exhibition.id}`}
-          state={createCuratorVisitState(exhibition.id)}
-        >
-          View public exhibition
-        </Link>
-      )}
-      {isPublished && confirmingUnpublish ? (
+
+      {isPublished && confirmingUnpublish && (
         <div
           className="unpublish-confirmation"
           role="alertdialog"
@@ -322,7 +344,7 @@ function PublicationControls({
           aria-describedby="unpublish-confirmation-description"
           onKeyDown={handleConfirmationKeyDown}
         >
-          <h4 id="unpublish-confirmation-heading">Unpublish this exhibition?</h4>
+          <h3 id="unpublish-confirmation-heading">Unpublish this exhibition?</h3>
           <p id="unpublish-confirmation-description">
             The public exhibition will become unavailable. All exhibition content will be preserved, and the exhibition will return to an editable draft.
           </p>
@@ -347,22 +369,18 @@ function PublicationControls({
             </button>
           </div>
         </div>
-      ) : (
-        <button
-          ref={isPublished ? unpublishTriggerRef : undefined}
-          className="button"
-          type="button"
-          disabled={mutation !== null || (!isPublished && !isReadyToPublish)}
-          aria-describedby={isPublished ? undefined : 'publication-readiness-explanation publication-prerequisites'}
-          onClick={() => {
-            if (isPublished) requestUnpublish()
-            else if (isReadyToPublish) void onTransition('publish')
-          }}
-        >
-          {isPublishing ? 'Publishing…' : isPublished ? 'Unpublish exhibition' : 'Publish exhibition'}
-        </button>
       )}
-    </div>
+
+      <details className="preview-publication__details">
+        <summary>Exhibition details</summary>
+        <dl>
+          <div><dt>Status</dt><dd>{isPublished ? 'Published' : 'Draft'}</dd></div>
+          {exhibition.publishedAt && <div><dt>Published</dt><dd><time dateTime={exhibition.publishedAt}>{formatTimestamp(exhibition.publishedAt)}</time></dd></div>}
+          <div><dt>Created</dt><dd><time dateTime={exhibition.createdAt}>{formatTimestamp(exhibition.createdAt)}</time></dd></div>
+          <div><dt>Last updated</dt><dd><time dateTime={exhibition.updatedAt}>{formatTimestamp(exhibition.updatedAt)}</time></dd></div>
+        </dl>
+      </details>
+    </section>
   )
 }
 

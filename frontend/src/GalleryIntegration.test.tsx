@@ -187,8 +187,11 @@ describe('gallery integration', () => {
 
     const publicView = renderAt('/visit/1')
     await screen.findByRole('button', { name: 'Renderer ready' })
+    expect(screen.getByRole('group', { name: 'Gallery mode' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Virtual gallery' })).toHaveAttribute('aria-pressed', 'true')
     await waitFor(() => expect(document.querySelector('.route-announcement')).toHaveTextContent('Exhibition: Public gallery'))
     fireEvent.click(screen.getByRole('button', { name: 'Renderer ready' }))
+    expect(screen.queryByRole('region', { name: 'Standard gallery available while the 3D renderer loads' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Begin tour' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next artwork' }))
@@ -204,6 +207,7 @@ describe('gallery integration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
     expect(screen.getByRole('button', { name: 'Return to virtual gallery' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Standard gallery' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByRole('button', { name: 'Try 3D again' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Return to virtual gallery' }))
     expect(screen.getByTestId('integration-gallery-canvas')).toHaveAttribute('data-gallery-attempt', '1')
@@ -220,9 +224,13 @@ describe('gallery integration', () => {
 
     renderAt('/exhibitions/2/preview')
     await screen.findByRole('button', { name: 'Renderer ready' })
+    expect(screen.getByRole('heading', { name: 'Standard exhibition', level: 2 })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Renderer ready' }))
+    expect(screen.queryByRole('heading', { name: 'Standard exhibition', level: 2 })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Virtual gallery preview', level: 2 })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'View as standard gallery' }))
     expect(screen.getByRole('button', { name: 'Return to virtual gallery' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Standard exhibition', level: 2 })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Try 3D again' })).not.toBeInTheDocument()
   })
 })
